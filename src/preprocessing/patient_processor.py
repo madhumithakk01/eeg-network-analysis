@@ -47,6 +47,7 @@ def process_patient(
     bandpass_high: float = 40.0,
     max_segments: int = 48,
     temp_dir: Optional[str] = None,
+    validate_connectivity: bool = False,
 ) -> Dict[str, Any]:
     """
     Process one patient: load up to max_segments, filter, average reference,
@@ -69,10 +70,12 @@ def process_patient(
         bandpass_high: Bandpass upper cutoff in Hz.
         max_segments: Maximum number of segments to process per patient (default 48).
         temp_dir: Directory for temporary file before move (default uses config or /content/tmp).
+        validate_connectivity: If True, run validate_connectivity_batch() after each segment's
+            connectivity computation; raises on failure. Default False to avoid slowing full pipeline.
 
     Returns:
-        Summary dict with keys: processed, skipped, reason, n_windows, n_connectivity_matrices,
-        output_path, error. skipped=True if output already existed or no segments processed.
+        Summary dict with keys: processed, skipped, reason, n_segments_processed,
+        n_windows, n_connectivity_matrices, output_path, error.
     """
     if temp_dir is None:
         temp_dir = os.environ.get("TEMP_DIR", "/content/tmp")
@@ -87,6 +90,7 @@ def process_patient(
             "processed": False,
             "skipped": True,
             "reason": "output_exists",
+            "n_segments_processed": 0,
             "n_windows": 0,
             "n_connectivity_matrices": 0,
             "output_path": final_path,
@@ -100,6 +104,7 @@ def process_patient(
             "processed": False,
             "skipped": True,
             "reason": "no_segments",
+            "n_segments_processed": 0,
             "n_windows": 0,
             "n_connectivity_matrices": 0,
             "output_path": None,
@@ -107,6 +112,7 @@ def process_patient(
         }
 
     all_connectivity: List[np.ndarray] = []
+    n_segments_processed = 0
     n_windows_total = 0
     fs_seen: Optional[float] = None
     n_channels_expected = len(common_channel_names)
@@ -132,7 +138,11 @@ def process_patient(
         # Stack to (n_windows, n_samples, n_channels)
         windows_array = np.stack(windows_list, axis=0)
         conn = compute_connectivity_batch(windows_array)
+        if validate_connectivity:
+            from src.utils.connectivity_checks import validate_connectivity_batch as _validate
+            _validate(conn)
         all_connectivity.append(conn)
+        n_segments_processed += 1
         n_windows_total += conn.shape[0]
 
     if not all_connectivity:
@@ -140,6 +150,7 @@ def process_patient(
             "processed": False,
             "skipped": True,
             "reason": "no_windows",
+            "n_segments_processed": 0,
             "n_windows": 0,
             "n_connectivity_matrices": 0,
             "output_path": None,
@@ -165,18 +176,27 @@ def process_patient(
             "processed": False,
             "skipped": False,
             "reason": "write_failed",
+            "n_segments_processed": n_segments_processed,
             "n_windows": n_windows_total,
             "n_connectivity_matrices": connectivity_array.shape[0],
             "output_path": None,
             "error": str(e),
         }
 
+    n_matrices = connectivity_array.shape[0]
+    print(
+        f"  [patient_processor] patient_id={patient_id} | "
+        f"segments_processed={n_segments_processed} | "
+        f"windows_produced={n_windows_total} | "
+        f"connectivity_matrices_saved={n_matrices}"
+    )
     return {
         "processed": True,
         "skipped": False,
         "reason": None,
+        "n_segments_processed": n_segments_processed,
         "n_windows": n_windows_total,
-        "n_connectivity_matrices": connectivity_array.shape[0],
+        "n_connectivity_matrices": n_matrices,
         "output_path": final_path,
         "error": None,
     }
