@@ -1,0 +1,66 @@
+# Data and datasets — never commit
+*.mat
+*.hea
+*.csv
+data/
+metadata/
+batches/
+analysis/
+features/
+intermediate/
+models/
+logs/
+
+# Google Drive mount points (if used locally)
+/content/
+drive/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cursor
+.cursor/
+
+# Repo-only: code, config, documentation
+# No EEG files, metadata CSVs, or patient data
