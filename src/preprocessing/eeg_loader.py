@@ -18,60 +18,51 @@ def load_eeg_segment(
     channel_names: List[str],
 ) -> Tuple[np.ndarray, float]:
     """
-    Load one EEG segment from a WFDB record and return signals for the given channels.
+    Load one EEG segment from a WFDB record on the local filesystem.
 
-    Uses directory + basename for WFDB: rdrecord(record_name=basename, pn_dir=directory).
-    Loads physical units (p_signal), then selects only requested channels by name.
-    Fails with ValueError if any required channel is missing (no silent skip).
+    Reads .hea/.mat from the given path only; no remote (PhysioNet) access.
+    Uses record_path directly so WFDB loads from disk without pn_dir.
 
     Args:
-        record_path: Path to the record (with or without .hea/.mat extension).
-                     Example: /path/to/0284_001_004_EEG or .../0284_001_004_EEG.hea
+        record_path: Full path to the record (with or without .hea/.mat extension).
+                     Example: /content/drive/MyDrive/icare_project/data/raw/eeg/0284/0284_001_004_EEG
         channel_names: List of channel names to load (e.g. from common_eeg_channels.json).
                        Order in the returned array matches this list.
 
     Returns:
         signals: numpy array of shape (n_samples, n_channels) in physical units.
-                 Channels in the order of channel_names.
         fs: Sampling frequency in Hz.
 
     Raises:
         FileNotFoundError: If the record files are missing.
-        ValueError: If any requested channel is missing in the record (message includes record_path).
+        ValueError: If any requested channel is missing (message includes record_path).
     """
     path = os.path.abspath(record_path)
     if path.lower().endswith(".hea"):
         path = path[:-4]
     if path.lower().endswith(".mat"):
         path = path[:-4]
+    if not path:
+        raise ValueError(f"Invalid record_path: {record_path}")
 
-    dir_name = os.path.dirname(path)
-    base_name = os.path.basename(path)
-    if not base_name:
-        raise ValueError(f"Invalid record_path (no basename): {record_path}")
-
-    if dir_name:
-        record = wfdb.rdrecord(record_name=base_name, pn_dir=dir_name)
-    else:
-        record = wfdb.rdrecord(record_name=base_name)
+    # Load from local filesystem only; do not use pn_dir (avoids PhysioNet fetch)
+    record = wfdb.rdrecord(path)
 
     if record.sig_name is None:
         raise ValueError(f"No channel names in record: {record_path}")
 
     for ch in channel_names:
         if ch not in record.sig_name:
-            raise ValueError(f"Missing required channel '{ch}' in {record_path}")
+            raise ValueError(f"Channel {ch} not found in {record_path}")
 
-    channel_indices = [record.sig_name.index(ch) for ch in channel_names]
+    indices = [record.sig_name.index(ch) for ch in channel_names]
 
-    if record.p_signal is not None:
-        signals = np.asarray(record.p_signal, dtype=np.float64)
-    else:
-        signals = np.asarray(record.d_signal, dtype=np.float64)
+    if record.p_signal is None:
+        raise ValueError(f"No p_signal in record: {record_path}")
+    signals = np.asarray(record.p_signal[:, indices], dtype=np.float64)
 
     if signals.size == 0:
         raise ValueError(f"No signal data for record {record_path}")
 
-    signals = signals[:, channel_indices]
     fs = float(record.fs)
     return signals, fs
