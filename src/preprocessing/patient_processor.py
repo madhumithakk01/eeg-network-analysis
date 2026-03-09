@@ -114,15 +114,18 @@ def process_patient(
     all_connectivity: List[np.ndarray] = []
     n_segments_processed = 0
     n_windows_total = 0
-    fs_seen: Optional[float] = None
     n_channels_expected = len(common_channel_names)
 
-    for record_path in segment_paths:
+    # Minimum segment duration (seconds) to allow a single full-segment window when 30s windowing yields 0
+    MIN_SEGMENT_DURATION_SEC = 1.0
+
+    for seg_idx, record_path in enumerate(segment_paths):
         try:
             data, fs = load_eeg_segment(record_path, common_channel_names)
         except Exception as e:
             print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=load_exception | exception={e!r}"
+                f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                f"reason=load_exception | exception={e!r}"
             )
             continue
 
@@ -130,29 +133,27 @@ def process_patient(
         if data.shape[0] == n_channels_expected and data.shape[1] != n_channels_expected:
             data = data.T
             print(
-                f"  [segment_debug] segment={record_path} | signal_orientation=transposed to (n_samples, n_channels)"
+                f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | "
+                f"signal_orientation=transposed to (n_samples, n_channels)"
             )
         signal_shape = data.shape
+        n_samples = signal_shape[0]
         if signal_shape[1] != n_channels_expected:
             print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=missing_channels | "
-                f"expected={n_channels_expected} | got={signal_shape[1]}"
+                f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                f"reason=missing_channels | expected={n_channels_expected} got={signal_shape[1]}"
             )
             continue
-        if fs_seen is not None and abs(fs - fs_seen) > 0.01:
-            print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=fs_mismatch | fs={fs} | expected_fs={fs_seen}"
-            )
-            continue
-        fs_seen = fs
 
+        # Process each segment with its own sampling rate; no fs_mismatch skip (reduces data loss)
         try:
             filtered = bandpass_filter(
                 data, fs, low_hz=bandpass_low, high_hz=bandpass_high
             )
         except Exception as e:
             print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=filter_failure | exception={e!r}"
+                f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                f"reason=filter_failure | fs={fs} | exception={e!r}"
             )
             continue
         filtered = filtered - filtered.mean(axis=1, keepdims=True)
@@ -160,15 +161,26 @@ def process_patient(
         windows_list = segment_into_windows_list(filtered, fs, window_seconds)
         n_windows_seg = len(windows_list)
         if n_windows_seg == 0:
-            print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=windowing_returned_0_windows | "
-                f"signal_shape={signal_shape} fs={fs} window_seconds={window_seconds}"
-            )
-            continue
+            segment_duration_sec = n_samples / fs if fs > 0 else 0.0
+            required_samples_30s = int(round(window_seconds * fs)) if fs > 0 else 0
+            if segment_duration_sec >= MIN_SEGMENT_DURATION_SEC:
+                # Salvage short segment as one full-segment window (one connectivity matrix)
+                windows_list = segment_into_windows_list(
+                    filtered, fs, window_seconds=segment_duration_sec
+                )
+                n_windows_seg = len(windows_list)
+            if n_windows_seg == 0:
+                print(
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                    f"reason=windowing_returned_0_windows | signal_shape={signal_shape} fs={fs} "
+                    f"window_seconds={window_seconds} required_samples_30s={required_samples_30s} "
+                    f"segment_duration_sec={segment_duration_sec:.2f} n_full_30s_windows={n_samples // max(1, required_samples_30s)}"
+                )
+                continue
         window_shape = windows_list[0].shape if windows_list else None
         print(
-            f"  [segment_debug] segment={record_path} | signal_shape={signal_shape} | fs={fs} | "
-            f"channels_detected={signal_shape[1]} | windows={n_windows_seg} | window_shape={window_shape}"
+            f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | signal_shape={signal_shape} fs={fs} | "
+            f"channels={signal_shape[1]} windows={n_windows_seg} window_shape={window_shape}"
         )
 
         try:
@@ -176,12 +188,13 @@ def process_patient(
             conn = compute_connectivity_batch(windows_array)
         except Exception as e:
             print(
-                f"  [segment_debug] SKIP segment={record_path} | reason=connectivity_failure | exception={e!r}"
+                f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                f"reason=connectivity_failure | exception={e!r}"
             )
             continue
         n_conn = conn.shape[0]
         print(
-            f"  [segment_debug] segment={record_path} | connectivity_matrices_produced={n_conn}"
+            f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | connectivity_matrices={n_conn}"
         )
 
         if validate_connectivity:
@@ -190,7 +203,8 @@ def process_patient(
                 _validate(conn)
             except Exception as e:
                 print(
-                    f"  [segment_debug] SKIP segment={record_path} | reason=validation_failure | exception={e!r}"
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                    f"reason=validation_failure | exception={e!r}"
                 )
                 continue
         all_connectivity.append(conn)
