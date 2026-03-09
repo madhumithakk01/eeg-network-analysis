@@ -120,27 +120,79 @@ def process_patient(
     for record_path in segment_paths:
         try:
             data, fs = load_eeg_segment(record_path, common_channel_names)
-        except Exception:
+        except Exception as e:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=load_exception | exception={e!r}"
+            )
             continue
-        if data.shape[1] != n_channels_expected:
+
+        # Ensure (n_samples, n_channels); WFDB may return (n_channels, n_samples) in some setups
+        if data.shape[0] == n_channels_expected and data.shape[1] != n_channels_expected:
+            data = data.T
+            print(
+                f"  [segment_debug] segment={record_path} | signal_orientation=transposed to (n_samples, n_channels)"
+            )
+        signal_shape = data.shape
+        if signal_shape[1] != n_channels_expected:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=missing_channels | "
+                f"expected={n_channels_expected} | got={signal_shape[1]}"
+            )
             continue
         if fs_seen is not None and abs(fs - fs_seen) > 0.01:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=fs_mismatch | fs={fs} | expected_fs={fs_seen}"
+            )
             continue
         fs_seen = fs
 
-        filtered = bandpass_filter(data, fs, low_hz=bandpass_low, high_hz=bandpass_high)
-        # Average reference: remove mean across channels at each time point
+        try:
+            filtered = bandpass_filter(
+                data, fs, low_hz=bandpass_low, high_hz=bandpass_high
+            )
+        except Exception as e:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=filter_failure | exception={e!r}"
+            )
+            continue
         filtered = filtered - filtered.mean(axis=1, keepdims=True)
 
         windows_list = segment_into_windows_list(filtered, fs, window_seconds)
-        if not windows_list:
+        n_windows_seg = len(windows_list)
+        if n_windows_seg == 0:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=windowing_returned_0_windows | "
+                f"signal_shape={signal_shape} fs={fs} window_seconds={window_seconds}"
+            )
             continue
-        # Stack to (n_windows, n_samples, n_channels)
-        windows_array = np.stack(windows_list, axis=0)
-        conn = compute_connectivity_batch(windows_array)
+        window_shape = windows_list[0].shape if windows_list else None
+        print(
+            f"  [segment_debug] segment={record_path} | signal_shape={signal_shape} | fs={fs} | "
+            f"channels_detected={signal_shape[1]} | windows={n_windows_seg} | window_shape={window_shape}"
+        )
+
+        try:
+            windows_array = np.stack(windows_list, axis=0)
+            conn = compute_connectivity_batch(windows_array)
+        except Exception as e:
+            print(
+                f"  [segment_debug] SKIP segment={record_path} | reason=connectivity_failure | exception={e!r}"
+            )
+            continue
+        n_conn = conn.shape[0]
+        print(
+            f"  [segment_debug] segment={record_path} | connectivity_matrices_produced={n_conn}"
+        )
+
         if validate_connectivity:
-            from src.utils.connectivity_checks import validate_connectivity_batch as _validate
-            _validate(conn)
+            try:
+                from src.utils.connectivity_checks import validate_connectivity_batch as _validate
+                _validate(conn)
+            except Exception as e:
+                print(
+                    f"  [segment_debug] SKIP segment={record_path} | reason=validation_failure | exception={e!r}"
+                )
+                continue
         all_connectivity.append(conn)
         n_segments_processed += 1
         n_windows_total += conn.shape[0]
