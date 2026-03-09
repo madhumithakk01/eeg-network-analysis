@@ -5,7 +5,10 @@ Uses the wfdb library. Only header metadata is read; no .mat signal data
 is loaded in this module.
 """
 
+import os
 from typing import List
+
+import wfdb
 
 
 def get_channel_names_from_hea(hea_path: str) -> List[str]:
@@ -24,4 +27,10 @@ def get_channel_names_from_hea(hea_path: str) -> List[str]:
         FileNotFoundError: If the header file is missing.
         Exception: For invalid or unreadable WFDB headers.
     """
-    raise NotImplementedError("HEA parsing not yet implemented.")
+    record_name = os.path.abspath(hea_path)
+    if record_name.lower().endswith(".hea"):
+        record_name = record_name[:-4]
+    record = wfdb.rdheader(record_name=record_name)
+    if record.sig_name is None:
+        return []
+    return list(record.sig_name)

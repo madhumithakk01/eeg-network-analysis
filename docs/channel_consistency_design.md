@@ -28,7 +28,7 @@ WFDB `.hea` files may list **non-EEG channels** from clinical recordings, for ex
 - Pulse  
 - Temp  
 
-If these are not filtered out, connectivity matrices will mix brain and non-brain signals and **silently corrupt** network analysis. Therefore this stage must produce a **whitelist of valid EEG channels** (or equivalently, a blacklist of known non-EEG patterns to exclude). The **common_eeg_channels** set is defined only over channels that pass this filter.
+If these are not filtered out, connectivity matrices will mix brain and non-brain signals and **silently corrupt** network analysis. Therefore this stage uses a **whitelist of valid EEG channels** from the I-CARE dataset documentation (Fp1, Fp2, F7, F8, F3, F4, T3, T4, C3, C4, T5, T6, P3, P4, O1, O2, Fz, Cz, Pz, Fpz, Oz, F9). Only channels in this set are retained; all others (ECG, REF, SpO2, EMG, etc.) are excluded. The **common_eeg_channels** set is the intersection of these whitelist channels across all patients.
 
 ---
 
@@ -62,12 +62,12 @@ If these are not filtered out, connectivity matrices will mix brain and non-brai
 - **Output:** List of channel name strings as they appear in the header (e.g. `["Fp1", "Fp2", "F3", ...]`).
 - **Details:** Use the `wfdb` library (already in requirements) to read the header. WFDB provides channel/signal metadata; channel names are typically in the header line for each signal. Extract the signal names/labels and return them. No signal data (.mat) is read in this stage.
 
-### 3. Non-EEG channel filter — `src/data_loading/channel_filter.py`
+### 3. EEG channel filter (whitelist) — `src/data_loading/channel_filter.py`
 
-- **Responsibility:** Define which channels are valid EEG vs non-EEG, and filter a list of channel names to only valid EEG.
-- **Inputs:** List of channel names from a header; optionally a configurable whitelist or blacklist.
-- **Output:** List of channel names that are considered valid EEG (whitelist).
-- **Details:** Non-EEG channels are identified by name patterns (e.g. EKG, ECG, EMG, RESP, SpO2, Pulse, Temp). The module maintains a set of **excluded patterns** (or a **whitelist** of known EEG electrode names, e.g. 10–20 system). Design choice: either (a) **blacklist** known non-EEG substrings and keep all others, or (b) **whitelist** known EEG channel names and keep only those. Whitelist is safer to avoid accidentally including unknown non-EEG channels. Both approaches must be documented; the output artifact `common_eeg_channels.json` is the set of channels that pass the filter and are present in every patient.
+- **Responsibility:** Retain only channels that belong to the **official I-CARE EEG electrode set** (whitelist). All other channels (ECG, REF, SpO2, EMG, etc.) are excluded.
+- **Inputs:** List of channel names from a header.
+- **Output:** List of channel names that are in the whitelist, in canonical spelling.
+- **Details:** The module defines a constant **`VALID_EEG_CHANNELS`** (tuple or frozenset) with the 22 electrodes from the I-CARE dataset documentation: Fp1, Fp2, F7, F8, F3, F4, T3, T4, C3, C4, T5, T6, P3, P4, O1, O2, Fz, Cz, Pz, Fpz, Oz, F9. Channel names from the header are normalized (strip whitespace, uppercase) for matching; only channels in this set are kept. Output uses canonical spelling from the whitelist. This excludes by design all non-EEG channels (e.g. ECG, ECG1, REF, A1, A2, SpO2, EMG1, LOC, ROC, etc.).
 
 ### 4. Channel inventory orchestration — `src/data_loading/channel_inventory.py`
 

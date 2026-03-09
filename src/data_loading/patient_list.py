@@ -7,6 +7,8 @@ which patients to process. Patient IDs are always treated as strings.
 
 from typing import List
 
+import pandas as pd
+
 
 def load_patient_ids(csv_path: str) -> List[str]:
     """
@@ -23,4 +25,9 @@ def load_patient_ids(csv_path: str) -> List[str]:
     Raises:
         FileNotFoundError: If csv_path does not exist.
     """
-    raise NotImplementedError("Patient list loading not yet implemented.")
+    df = pd.read_csv(csv_path)
+    if "patient_id" not in df.columns:
+        raise ValueError(f"CSV must have 'patient_id' column; found: {list(df.columns)}")
+    ids = df["patient_id"].astype(str).str.strip()
+    ids = ids[ids != ""]
+    return ids.tolist()
