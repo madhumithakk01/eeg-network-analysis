@@ -67,6 +67,21 @@ ANALYSIS_OUTPUT_PATH = os.environ.get(
     "/content/drive/MyDrive/icare_project/analysis",
 )
 
+# Preprocessing outputs: one file per patient (windows or connectivity)
+WINDOWS_OUTPUT_DIR = os.environ.get(
+    "WINDOWS_OUTPUT_DIR",
+    os.path.join(INTERMEDIATE_OUTPUT_PATH, "windows"),
+)
+
+# Path to common EEG channel list (JSON array) from channel consistency stage
+COMMON_CHANNELS_PATH = os.environ.get(
+    "COMMON_CHANNELS_PATH",
+    os.path.join(ANALYSIS_OUTPUT_PATH, "common_eeg_channels.json"),
+)
+
+# Local temp directory for intermediate writes (Colab: /content/tmp); moved to Drive when done
+TEMP_DIR = os.environ.get("TEMP_DIR", "/content/tmp")
+
 # ---------------------------------------------------------------------------
 # Processing parameters
 # ---------------------------------------------------------------------------
@@ -87,6 +102,9 @@ BATCH_FILENAME_PATTERN = "batch_{}.csv"
 
 # Patient IDs are strings (e.g. "0284", "0286"); no header in batch CSVs.
 TOTAL_PATIENTS = 294
+
+# Maximum segments to process per patient (~1 hour each → ~48 hours)
+MAX_EEG_SEGMENTS = 48
 
 # Canonical patient list (all 294 with downloaded EEG); has header "patient_id"
 CANONICAL_PATIENT_LIST_FILENAME = "all_downloaded_patients_294.csv"
