@@ -38,7 +38,9 @@ def run_channel_inventory(
     channel_frequency.csv, and common_eeg_channels.json to output_dir.
 
     Args:
-        patient_ids: List of patient ID strings (e.g. from patient_list.load).
+        patient_ids: List of patient ID strings (e.g. from load_patient_ids).
+                     Should be four-digit zero-padded (e.g. "0284"); load_patient_ids
+                     returns IDs already normalized.
         eeg_raw_root: Root directory containing one subdir per patient_id
                       with .hea/.mat files inside.
         output_dir: Directory for output artifacts (e.g. ANALYSIS_OUTPUT_PATH).
@@ -59,6 +61,7 @@ def run_channel_inventory(
     frequency_counter: Counter[str] = Counter()
 
     for patient_id in patient_ids:
+        # patient_id is expected to be four-digit zero-padded (e.g. "0284")
         patient_dir = os.path.join(eeg_raw_root, patient_id.strip())
         hea_path = _find_first_hea(patient_dir)
         if hea_path is None:
