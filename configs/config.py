@@ -61,6 +61,12 @@ LOG_PATH = os.environ.get(
     "/content/drive/MyDrive/icare_project/logs",
 )
 
+# Analysis outputs (channel inventory, frequency, common channels)
+ANALYSIS_OUTPUT_PATH = os.environ.get(
+    "ANALYSIS_OUTPUT_PATH",
+    "/content/drive/MyDrive/icare_project/analysis",
+)
+
 # ---------------------------------------------------------------------------
 # Processing parameters
 # ---------------------------------------------------------------------------
@@ -81,3 +87,11 @@ BATCH_FILENAME_PATTERN = "batch_{}.csv"
 
 # Patient IDs are strings (e.g. "0284", "0286"); no header in batch CSVs.
 TOTAL_PATIENTS = 294
+
+# Canonical patient list (all 294 with downloaded EEG); has header "patient_id"
+CANONICAL_PATIENT_LIST_FILENAME = "all_downloaded_patients_294.csv"
+
+# Balanced splits for parallel workers (~98 each); header "patient_id"
+# Balanced by Hospital, Outcome, Sex
+PATIENT_SPLIT_FILENAME_PATTERN = "patient_split_{}.csv"
+PATIENT_SPLIT_INDICES = (1, 2, 3)

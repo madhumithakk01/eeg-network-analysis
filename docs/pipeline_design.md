@@ -10,11 +10,20 @@ This document describes the **planned** computational pipeline for the I-CARE EE
 
 ### 1. EEG Channel Consistency Analysis Across Hospitals
 
-**Purpose:** Determine which EEG electrodes exist consistently across patients and hospitals.
+**Purpose:** Determine which EEG electrodes exist consistently across patients and hospitals, and exclude non-EEG channels (EKG, ECG, EMG, RESP, SpO2, etc.) so that connectivity analysis uses only brain signals.
 
-**Inputs:** Raw EEG headers/metadata; hospital or recording metadata.  
-**Outputs:** Channel list or mask defining electrodes to use in downstream steps.  
-**Location:** Outputs may be written to `intermediate/` (see configuration).
+**Inputs:** Canonical patient list (`all_downloaded_patients_294.csv`); raw EEG directory; WFDB `.hea` headers (one per patient sufficient).
+
+**Outputs:** (All written to `ANALYSIS_OUTPUT_PATH`, default `.../icare_project/analysis/`.)
+
+- **channel_inventory.csv** — One row per patient with the full list of detected (and filtered) EEG channels.
+- **channel_frequency.csv** — Each channel and how many patients contain it.
+- **common_eeg_channels.json** — The intersection of valid EEG channels present in **all** patients (whitelist for downstream preprocessing and connectivity).
+
+**Module(s):** `src/data_loading` — `patient_list`, `hea_parsing`, `channel_filter`, `channel_inventory`.  
+**Script:** `scripts/run_channel_inventory.py`.
+
+See **docs/channel_consistency_design.md** for full design (patient list loading, .hea parsing, non-EEG filtering, frequency stats, intersection logic).
 
 ---
 
@@ -104,10 +113,10 @@ All inputs read from Google Drive; all generated outputs written to Google Drive
 
 | Stage                      | Primary module(s)   | Script / entry point        |
 |---------------------------|---------------------|-----------------------------|
-| Channel consistency       | `src/data_loading`  | (TBD)                      |
-| Preprocessing             | `src/preprocessing` | (TBD)                      |
+| Channel consistency       | `src/data_loading`  | `scripts/run_channel_inventory.py` |
+| Preprocessing             | `src/preprocessing`  | (TBD)                      |
 | Connectivity              | `src/connectivity`  | (TBD)                      |
-| Graph construction/feat.  | `src/graph_features`| `scripts/run_feature_extraction.py` |
+| Graph construction/feat.  | `src/graph_features` | `scripts/run_feature_extraction.py` |
 | ML training / evaluation  | `src/modeling`      | `scripts/run_model_training.py`     |
 
 Utility and configuration are in `src/utils` and `configs/`.

@@ -132,6 +132,31 @@ Patient ID `0284` → EEG files in
 
 ---
 
+## Canonical Patient List and Balanced Splits
+
+A **canonical patient list** consolidates all 294 patients with downloaded EEG:
+
+**File:**  
+`/content/drive/MyDrive/icare_project/batches/all_downloaded_patients_294.csv`
+
+**Format:** CSV with header row. Single column: **`patient_id`**. One row per patient. Patient IDs are strings (e.g. `"0284"`, `"0286"`). This is the source of truth for the channel consistency analysis and for full-dataset runs.
+
+**Balanced compute splits** (for parallel Colab workers):
+
+- `.../batches/patient_split_1.csv`
+- `.../batches/patient_split_2.csv`
+- `.../batches/patient_split_3.csv`
+
+Each split contains approximately **98 patients**, with header **`patient_id`**. Splits are **balanced** by:
+
+- Hospital distribution  
+- Outcome distribution (Good vs Poor)  
+- Sex distribution  
+
+These splits are used later for parallel workers; the channel consistency stage uses the **canonical** list to compute the global channel intersection across all 294 patients.
+
+---
+
 ## Audit Dataset
 
 **Location:**  
