@@ -20,21 +20,24 @@ def load_eeg_segment(
     """
     Load one EEG segment from a WFDB record and return signals for the given channels.
 
+    Uses directory + basename for WFDB: rdrecord(record_name=basename, pn_dir=directory).
+    Loads physical units (p_signal), then selects only requested channels by name.
+    Fails with ValueError if any required channel is missing (no silent skip).
+
     Args:
         record_path: Path to the record (with or without .hea/.mat extension).
-                     Example: /path/to/0284_001_000_EEG or /path/to/0284_001_000_EEG.hea
+                     Example: /path/to/0284_001_004_EEG or .../0284_001_004_EEG.hea
         channel_names: List of channel names to load (e.g. from common_eeg_channels.json).
-                       Order in the returned array matches this list. Channels missing
-                       in the record are skipped; at least one must be present.
+                       Order in the returned array matches this list.
 
     Returns:
         signals: numpy array of shape (n_samples, n_channels) in physical units.
-                 Channels are in the order of channel_names (only those present).
+                 Channels in the order of channel_names.
         fs: Sampling frequency in Hz.
 
     Raises:
         FileNotFoundError: If the record files are missing.
-        ValueError: If no requested channel is found in the record.
+        ValueError: If any requested channel is missing in the record (message includes record_path).
     """
     path = os.path.abspath(record_path)
     if path.lower().endswith(".hea"):
@@ -44,24 +47,31 @@ def load_eeg_segment(
 
     dir_name = os.path.dirname(path)
     base_name = os.path.basename(path)
+    if not base_name:
+        raise ValueError(f"Invalid record_path (no basename): {record_path}")
+
     if dir_name:
-        record = wfdb.rdrecord(
-            record_name=base_name,
-            pn_dir=dir_name,
-            channel_names=channel_names,
-        )
+        record = wfdb.rdrecord(record_name=base_name, pn_dir=dir_name)
     else:
-        record = wfdb.rdrecord(record_name=base_name, channel_names=channel_names)
+        record = wfdb.rdrecord(record_name=base_name)
+
+    if record.sig_name is None:
+        raise ValueError(f"No channel names in record: {record_path}")
+
+    for ch in channel_names:
+        if ch not in record.sig_name:
+            raise ValueError(f"Missing required channel '{ch}' in {record_path}")
+
+    channel_indices = [record.sig_name.index(ch) for ch in channel_names]
 
     if record.p_signal is not None:
-        data = np.asarray(record.p_signal, dtype=np.float64)
+        signals = np.asarray(record.p_signal, dtype=np.float64)
     else:
-        data = np.asarray(record.d_signal, dtype=np.float64)
+        signals = np.asarray(record.d_signal, dtype=np.float64)
 
-    fs = float(record.fs)
-    if data.size == 0:
+    if signals.size == 0:
         raise ValueError(f"No signal data for record {record_path}")
 
-    # rdrecord with channel_names returns only requested channels in order
-    # Shape is (n_samples, n_channels)
-    return data, fs
+    signals = signals[:, channel_indices]
+    fs = float(record.fs)
+    return signals, fs
