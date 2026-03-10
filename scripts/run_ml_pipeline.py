@@ -173,6 +173,7 @@ def main() -> int:
         "mean_f1": cv_result["mean_f1"] if cv_result else 0.0,
         "mean_sensitivity": cv_result["mean_sensitivity"] if cv_result else 0.0,
         "mean_specificity": cv_result["mean_specificity"] if cv_result else 0.0,
+        "mean_accuracy": cv_result["mean_accuracy"] if cv_result else 0.0,
     }
     with open(os.path.join(output_dir, "cv_metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)

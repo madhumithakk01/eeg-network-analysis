@@ -40,6 +40,7 @@ from configs.config import (
     CONNECTIVITY_DL_EPOCHS,
     CONNECTIVITY_DL_OUTPUT_PATH,
     CONNECTIVITY_DL_STRIDE,
+    CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH,
     PATIENT_TEMPORAL_DATASET_PATH,
     SPARSE_CONNECTIVITY_DIR,
 )
@@ -75,6 +76,11 @@ def main() -> int:
         type=str,
         default=None,
         help="Output directory for metrics (default: CONNECTIVITY_DL_OUTPUT_PATH).",
+    )
+    parser.add_argument(
+        "--stride4",
+        action="store_true",
+        help="Run stride=4 experiment; output to CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH (overrides --stride and --output-dir).",
     )
     parser.add_argument(
         "--stride",
@@ -123,14 +129,20 @@ def main() -> int:
     data_path = args.data or PATIENT_TEMPORAL_DATASET_PATH
     metadata_path = args.metadata or AUDIT_PATH
     sparse_dir = args.sparse_dir or SPARSE_CONNECTIVITY_DIR
-    output_dir = args.output_dir or CONNECTIVITY_DL_OUTPUT_PATH
-    stride = args.stride or CONNECTIVITY_DL_STRIDE
+    if args.stride4:
+        output_dir = CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH
+        stride = 4
+    else:
+        output_dir = args.output_dir or CONNECTIVITY_DL_OUTPUT_PATH
+        stride = args.stride or CONNECTIVITY_DL_STRIDE
     batch_size = args.batch_size or CONNECTIVITY_DL_BATCH_SIZE
     epochs = args.epochs or CONNECTIVITY_DL_EPOCHS
 
     print("=" * 60)
     print("Connectivity graph deep learning pipeline")
     print("=" * 60)
+    if args.stride4:
+        print("Experiment: stride=4 (separate output directory)")
     print(f"Data (outcomes):   {data_path}")
     print(f"Metadata:          {metadata_path}")
     print(f"Sparse connectivity: {sparse_dir}")

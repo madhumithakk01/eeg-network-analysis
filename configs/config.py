@@ -171,6 +171,12 @@ CONNECTIVITY_DL_OUTPUT_PATH = os.environ.get(
 
 CONNECTIVITY_DL_STRIDE = int(os.environ.get("CONNECTIVITY_DL_STRIDE", "8"))
 
+# Stride-4 experiment: same model/dataset/CV, separate output directory
+CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH = os.environ.get(
+    "CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH",
+    os.path.join(ANALYSIS_OUTPUT_PATH, "model_results_connectivity_dl_stride4"),
+)
+
 CONNECTIVITY_DL_BATCH_SIZE = int(os.environ.get("CONNECTIVITY_DL_BATCH_SIZE", "8"))
 
 CONNECTIVITY_DL_EPOCHS = int(os.environ.get("CONNECTIVITY_DL_EPOCHS", "40"))
