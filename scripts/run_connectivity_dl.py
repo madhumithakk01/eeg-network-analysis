@@ -24,6 +24,16 @@ _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+# Ensure graph_models package is present (avoids confusing ModuleNotFoundError in Colab)
+_graph_models_dir = os.path.join(_PROJECT_ROOT, "src", "graph_models")
+_models_file = os.path.join(_graph_models_dir, "models.py")
+if not os.path.isfile(_models_file):
+    raise ImportError(
+        f"Missing src/graph_models/models.py. Project root is: {_PROJECT_ROOT!r}. "
+        "Ensure you run from the repo root (directory containing 'src' and 'scripts') and that "
+        "src/graph_models/models.py exists (e.g. git pull or copy the full repo)."
+    )
+
 from configs.config import (
     AUDIT_PATH,
     CONNECTIVITY_DL_BATCH_SIZE,
