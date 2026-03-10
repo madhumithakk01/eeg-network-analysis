@@ -88,6 +88,12 @@ GRAPH_FEATURES_DIR = os.environ.get(
     os.path.join(INTERMEDIATE_OUTPUT_PATH, "graph_features"),
 )
 
+# Temporal aggregation: patient-level dataset (parquet)
+PATIENT_TEMPORAL_DATASET_PATH = os.environ.get(
+    "PATIENT_TEMPORAL_DATASET_PATH",
+    os.path.join(ANALYSIS_OUTPUT_PATH, "patient_temporal_dataset.parquet"),
+)
+
 # Path to common EEG channel list (JSON array) from channel consistency stage
 COMMON_CHANNELS_PATH = os.environ.get(
     "COMMON_CHANNELS_PATH",
