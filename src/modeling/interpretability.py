@@ -30,28 +30,37 @@ def compute_shap_importance(
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """
     Compute SHAP values and return mean absolute SHAP per feature (global importance).
-    Uses TreeExplainer for tree models, else KernelExplainer with a sample.
+    Uses TreeExplainer for tree models. Input is converted to a DataFrame with correct
+    column names so SHAP receives consistent, 1D-per-column data.
     """
     try:
         import shap
     except ImportError:
         raise ImportError("shap is required. pip install shap")
-    X_arr = np.asarray(X)
-    if n_samples is not None and len(X_arr) > n_samples:
-        idx = np.random.RandomState(42).choice(len(X_arr), size=n_samples, replace=False)
-        X_sample = X_arr[idx]
+    # Ensure SHAP receives a pandas DataFrame with correct column names (avoids "Per-column arrays must each be 1-dimensional")
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(np.asarray(X), columns=feature_names)
     else:
-        X_sample = X_arr
+        X = X.copy()
+        if list(X.columns) != feature_names:
+            X = X[feature_names] if all(c in X.columns for c in feature_names) else pd.DataFrame(X.values, columns=feature_names)
+    if len(feature_names) != X.shape[1]:
+        X = pd.DataFrame(X.values[:, : len(feature_names)], columns=feature_names)
+    if n_samples is not None and len(X) > n_samples:
+        idx = np.random.RandomState(42).choice(len(X), size=n_samples, replace=False)
+        X_sample = X.iloc[idx].copy()
+    else:
+        X_sample = X.copy()
     try:
         explainer = shap.TreeExplainer(model, X_sample)
         shap_values = explainer.shap_values(X_sample)
         if isinstance(shap_values, list):
-            # Binary: use positive class
             shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
     except Exception:
-        mask = shap.maskers.Independent(X_sample)
-        explainer = shap.KernelExplainer(model.predict_proba, X_sample[:50], link="identity")
-        shap_values = explainer.shap_values(X_sample[: min(100, len(X_sample))], nsamples=50)
+        X_small = X_sample.iloc[: min(50, len(X_sample))]
+        mask = shap.maskers.Independent(X_small)
+        explainer = shap.KernelExplainer(model.predict_proba, X_small, link="identity")
+        shap_values = explainer.shap_values(X_sample.iloc[: min(100, len(X_sample))], nsamples=50)
         if isinstance(shap_values, list):
             shap_values = shap_values[1]
     mean_abs = np.abs(shap_values).mean(axis=0)
@@ -67,18 +76,26 @@ def shap_summary_plot(
     save_path: str,
     n_samples: int = 200,
 ) -> None:
-    """Generate and save SHAP summary plot (beeswarm)."""
+    """Generate and save SHAP summary plot (beeswarm). TreeExplainer with DataFrame input."""
     try:
         import shap
         import matplotlib.pyplot as plt
     except ImportError:
         return
-    X_arr = np.asarray(X)
-    if n_samples and len(X_arr) > n_samples:
-        idx = np.random.RandomState(42).choice(len(X_arr), size=n_samples, replace=False)
-        X_sample = X_arr[idx]
+    # Ensure SHAP receives a pandas DataFrame with correct column names
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(np.asarray(X), columns=feature_names)
     else:
-        X_sample = X_arr
+        X = X.copy()
+        if list(X.columns) != feature_names and all(c in X.columns for c in feature_names):
+            X = X[feature_names]
+        elif list(X.columns) != feature_names:
+            X = pd.DataFrame(X.values[:, : len(feature_names)], columns=feature_names)
+    if n_samples and len(X) > n_samples:
+        idx = np.random.RandomState(42).choice(len(X), size=n_samples, replace=False)
+        X_sample = X.iloc[idx].copy()
+    else:
+        X_sample = X.copy()
     try:
         explainer = shap.TreeExplainer(model, X_sample)
         shap_values = explainer.shap_values(X_sample)
@@ -86,7 +103,7 @@ def shap_summary_plot(
             shap_values = shap_values[1]
     except Exception:
         return
-    shap.summary_plot(shap_values, X_sample, feature_names=feature_names, show=False)
+    shap.summary_plot(shap_values, X_sample, show=False)
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.gcf().savefig(save_path, bbox_inches="tight", dpi=150)
     plt.close()

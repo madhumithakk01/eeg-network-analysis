@@ -25,13 +25,14 @@ def remove_highly_correlated(
     """
     Remove features with correlation above threshold using hierarchical clustering.
     Keeps one representative feature per cluster (closest to cluster centroid).
-    Constant features are dropped before correlation to avoid NaN/Inf in the distance matrix.
+    Drops constant features and any column that produces non-finite correlation values
+    so the distance matrix passed to linkage() is always finite.
     """
     from scipy.cluster.hierarchy import fcluster, linkage
     from scipy.spatial.distance import squareform
 
     X = X.copy()
-    # Drop constant features to avoid NaN/Inf in correlation and distance matrix
+    # Drop constant features to avoid NaN/Inf in correlation
     var = X.var()
     nonconst = var > 1e-12
     if not nonconst.any():
@@ -41,16 +42,25 @@ def remove_highly_correlated(
         return X, []
 
     corr = X.corr()
-    corr = corr.replace([np.inf, -np.inf], np.nan).fillna(0)
+    corr = corr.replace([np.inf, -np.inf], np.nan)
+    # Remove columns that produce any non-finite correlation (ensures finite distance matrix)
+    valid_mask = corr.notna().all(axis=0)
+    valid_columns = corr.columns[valid_mask].tolist()
+    if len(valid_columns) < 2:
+        X_out = X[valid_columns] if valid_columns else X.iloc[:, :0]
+        dropped = [c for c in X.columns if c not in valid_columns]
+        return X_out, dropped
+    X = X[valid_columns]
+    corr = corr.loc[valid_columns, valid_columns]
+
     dist = 1 - np.abs(corr.values.astype(np.float64))
+    dist = np.nan_to_num(dist, nan=0.0, posinf=0.0, neginf=0.0)
     dist = np.clip(dist, 0.0, None)
     np.fill_diagonal(dist, 0)
-    dist = np.nan_to_num(dist, nan=0.0, posinf=0.0, neginf=0.0)
+
     condensed = squareform(dist, checks=False)
     if condensed.size == 0:
         return X, []
-    if not np.isfinite(condensed).all():
-        condensed = np.nan_to_num(condensed, nan=0.0, posinf=0.0, neginf=0.0)
     Z = linkage(condensed, method="average")
     clusters = fcluster(Z, t=1.0 - threshold, criterion="distance")
     names = list(X.columns)
