@@ -106,6 +106,11 @@ def process_one_patient(
             "error": f"unexpected shape {getattr(dense, 'shape', '?')}",
         }
 
+    # Replace NaN/inf so sparsification and validation succeed (e.g. degenerate segments)
+    if not np.isfinite(dense).all():
+        dense = np.nan_to_num(dense, nan=0.0, posinf=0.0, neginf=0.0)
+    dense = dense.astype(np.float32, copy=False)
+
     sparse = sparsify_connectivity_dataset(dense, density=density)
     validate_sparse_matrix(sparse[0])
     n_edges = count_edges_per_matrix(sparse)
