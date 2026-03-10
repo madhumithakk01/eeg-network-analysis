@@ -23,6 +23,11 @@ from .temporal_feature_aggregator import (
     aggregate_temporal_features,
     get_aggregated_feature_count,
 )
+from .trajectory_analysis import (
+    TRAJECTORY_METRICS,
+    load_and_resample_group,
+    run_trajectory_analysis,
+)
 
 __all__ = [
     "aggregate_temporal_features",
@@ -41,6 +46,8 @@ __all__ = [
     "GRAPH_FEATURE_NAMES",
     "MIN_WINDOWS_TEMPORAL",
     "N_GRAPH_FEATURES",
+    "run_trajectory_analysis",
     "SPECTRAL_INDICES",
     "STABILITY_FEATURE_INDICES",
+    "TRAJECTORY_METRICS",
 ]

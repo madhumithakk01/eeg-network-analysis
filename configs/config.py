@@ -106,6 +106,12 @@ COMMON_CHANNELS_PATH = os.environ.get(
     os.path.join(ANALYSIS_OUTPUT_PATH, "common_eeg_channels.json"),
 )
 
+# Network dynamics / trajectory analysis outputs
+NETWORK_DYNAMICS_OUTPUT_PATH = os.environ.get(
+    "NETWORK_DYNAMICS_OUTPUT_PATH",
+    os.path.join(ANALYSIS_OUTPUT_PATH, "network_dynamics"),
+)
+
 # Local temp directory for intermediate writes (Colab: /content/tmp); moved to Drive when done
 TEMP_DIR = os.environ.get("TEMP_DIR", "/content/tmp")
 
