@@ -33,6 +33,7 @@ from src.modeling.feature_selection import (
     remove_highly_correlated,
     rank_features_multi_method,
     select_top_k,
+    select_top_k_with_nci,
 )
 from src.modeling.hyperparameter_search import run_optuna
 from src.modeling.interpretability import (
@@ -69,8 +70,17 @@ def main() -> int:
     print("=" * 60)
     print("Stage 1 — Data loading")
     print("=" * 60)
+    print(f"Dataset path: {data_path}")
     X, y, feature_names = load_dataset(data_path, metadata_path=metadata_path, outcome_column=args.outcome)
-    print(f"Loaded: {X.shape[0]} patients, {X.shape[1]} features. Class counts: {dict(y.value_counts())}")
+    n_rows = X.shape[0]
+    try:
+        df_check = pd.read_parquet(data_path)
+        n_patients = int(df_check["patient_id"].nunique()) if "patient_id" in df_check.columns else n_rows
+    except Exception:
+        n_patients = n_rows
+    print(f"Loaded: {n_rows} rows, {n_patients} unique patients, {X.shape[1]} features. Class counts: {dict(y.value_counts())}")
+    if n_rows < 250:
+        print("WARNING: Dataset has fewer than 250 patients. The full cohort may not be loaded. Expected ~294.")
 
     print("\nStage 2 — Data quality")
     X_clean, dropped, report = data_quality_checks(
@@ -83,24 +93,26 @@ def main() -> int:
     X_corr, dropped_corr = remove_highly_correlated(X_clean, threshold=args.correlation_threshold)
     print(f"Dropped {len(dropped_corr)} highly correlated. Remaining: {X_corr.shape[1]}")
 
-    print("\nStage 4 — Feature selection (top k={})".format(args.top_k))
+    print("\nStage 4 — Feature selection (top k, NCI-preserved)")
     ranking = rank_features_multi_method(X_corr, y, random_state=42)
-    selected = select_top_k(ranking, k=min(args.top_k, len(ranking)))
+    effective_k = min(args.top_k, 25) if n_rows >= 150 else min(args.top_k, 15)
+    selected = select_top_k_with_nci(ranking, k=effective_k, available_columns=X_corr.columns.tolist())
     X_sel = X_corr[selected].copy()
     ranking.to_csv(os.path.join(output_dir, "feature_ranking.csv"), index=False)
     print(f"Selected {len(selected)} features.")
 
     print("\nStage 5–7 — Stratified 5-Fold CV + Scaling + Model training")
     n_splits = args.n_folds
+    scale_pos_weight = (y == 0).sum() / max((y == 1).sum(), 1)
     results = {}
     for name, get_factory in [
         ("RandomForest", lambda: get_rf_factory(random_state=42)),
-        ("XGBoost", lambda: get_xgboost_factory(random_state=42)),
-        ("LightGBM", lambda: get_lightgbm_factory(random_state=42)),
+        ("XGBoost", lambda: get_xgboost_factory(random_state=42, scale_pos_weight=scale_pos_weight)),
+        ("LightGBM", lambda: get_lightgbm_factory(random_state=42, is_unbalance=True)),
     ]:
         try:
             cv_result = run_cross_validation(
-                X_sel, y, get_factory(), n_splits=n_splits, random_state=42, scale=True
+                X_sel, y, get_factory(), n_splits=n_splits, random_state=42, scale=True, use_youden_threshold=True
             )
             results[name] = cv_result
             print(
@@ -138,10 +150,10 @@ def main() -> int:
             if best_name == "RandomForest":
                 factory = get_rf_factory(**best_params)
             elif best_name == "XGBoost":
-                factory = get_xgboost_factory(**best_params)
+                factory = get_xgboost_factory(**{**best_params, "scale_pos_weight": scale_pos_weight})
             else:
-                factory = get_lightgbm_factory(**best_params)
-            cv_result = run_cross_validation(X_sel, y, factory(), n_splits=n_splits, random_state=42, scale=True)
+                factory = get_lightgbm_factory(**{**best_params, "is_unbalance": True})
+            cv_result = run_cross_validation(X_sel, y, factory(), n_splits=n_splits, random_state=42, scale=True, use_youden_threshold=True)
             results[best_name] = cv_result
         except Exception as e:
             print(f"  Optuna failed: {e}")
@@ -150,9 +162,9 @@ def main() -> int:
     if best_name == "RandomForest":
         final_factory = get_rf_factory(random_state=42)
     elif best_name == "XGBoost":
-        final_factory = get_xgboost_factory(random_state=42)
+        final_factory = get_xgboost_factory(random_state=42, scale_pos_weight=scale_pos_weight)
     else:
-        final_factory = get_lightgbm_factory(random_state=42)
+        final_factory = get_lightgbm_factory(random_state=42, is_unbalance=True)
     final_model, scaler, _ = train_final_model(X_sel, y, final_factory, scale=True, random_state=42)
     cv_result = results.get(best_name)
     metrics = {
