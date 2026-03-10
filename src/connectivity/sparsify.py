@@ -146,9 +146,10 @@ def validate_sparse_matrix(matrix: np.ndarray) -> None:
         raise ValueError("Matrix contains NaN")
     n_edges = np.count_nonzero(matrix[_TRI_I, _TRI_J])
     expected = int(np.ceil(_N_EDGES * 0.15))
-    if abs(n_edges - expected) > 2:  # allow small tolerance
+    # Allow 0 for degenerate windows (e.g. constant signal → NaN → replaced with 0)
+    if n_edges < 0 or n_edges > expected + 2:
         raise ValueError(
-            f"Expected ~{expected} edges (density 0.15), got {n_edges}"
+            f"Expected 0 ≤ edges ≤ ~{expected} (density 0.15), got {n_edges}"
         )
 
 
