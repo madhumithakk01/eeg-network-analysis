@@ -82,6 +82,12 @@ SPARSE_CONNECTIVITY_DIR = os.environ.get(
 # Fraction of edges to retain in sparse connectivity (density-based thresholding)
 SPARSE_DENSITY = float(os.environ.get("SPARSE_DENSITY", "0.15"))
 
+# Graph feature extraction: sparse connectivity -> per-window feature vectors
+GRAPH_FEATURES_DIR = os.environ.get(
+    "GRAPH_FEATURES_DIR",
+    os.path.join(INTERMEDIATE_OUTPUT_PATH, "graph_features"),
+)
+
 # Path to common EEG channel list (JSON array) from channel consistency stage
 COMMON_CHANNELS_PATH = os.environ.get(
     "COMMON_CHANNELS_PATH",
