@@ -4,6 +4,7 @@
 
 numpy==2.0.2
 pandas==2.3.3
+pyarrow>=10.0.0
 numba==0.63.1
 antropy==0.1.9
 nolds==0.6.3
@@ -12,3 +13,5 @@ wfdb==4.3.0
 jedi>=0.16
 scipy==1.17.0
 scikit-learn==1.8.0
+# Optional: change-point detection for collapse time (run_temporal_feature_generation works without it)
+# ruptures>=1.1.9
