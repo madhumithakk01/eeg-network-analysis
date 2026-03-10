@@ -140,3 +140,16 @@ CANONICAL_PATIENT_LIST_FILENAME = "all_downloaded_patients_294.csv"
 # Balanced by Hospital, Outcome, Sex
 PATIENT_SPLIT_FILENAME_PATTERN = "patient_split_{}.csv"
 PATIENT_SPLIT_INDICES = (1, 2, 3)
+
+# ---------------------------------------------------------------------------
+# Temporal deep learning pipeline (window-level graph features -> outcome)
+# ---------------------------------------------------------------------------
+
+TEMPORAL_DL_OUTPUT_PATH = os.environ.get(
+    "TEMPORAL_DL_OUTPUT_PATH",
+    os.path.join(ANALYSIS_OUTPUT_PATH, "model_results_temporal_dl"),
+)
+
+TEMPORAL_DL_BATCH_SIZE = int(os.environ.get("TEMPORAL_DL_BATCH_SIZE", "16"))
+
+TEMPORAL_DL_EPOCHS = int(os.environ.get("TEMPORAL_DL_EPOCHS", "40"))
