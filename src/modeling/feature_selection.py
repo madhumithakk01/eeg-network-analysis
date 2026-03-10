@@ -25,47 +25,43 @@ def remove_highly_correlated(
     """
     Remove features with correlation above threshold using hierarchical clustering.
     Keeps one representative feature per cluster (closest to cluster centroid).
-
-    Parameters
-    ----------
-    X : pd.DataFrame
-        Numeric feature matrix.
-    threshold : float
-        Correlation threshold (default 0.95).
-
-    Returns
-    -------
-    X_reduced : pd.DataFrame
-        Matrix with correlated features removed.
-    dropped : list[str]
-        Names of dropped columns.
+    Constant features are dropped before correlation to avoid NaN/Inf in the distance matrix.
     """
     from scipy.cluster.hierarchy import fcluster, linkage
     from scipy.spatial.distance import squareform
 
-    corr = X.corr().values
-    np.fill_diagonal(corr, 0)
-    # Distance = 1 - |correlation| for clustering; clip to avoid negative values from float precision
-    dist = 1 - np.abs(corr)
+    X = X.copy()
+    # Drop constant features to avoid NaN/Inf in correlation and distance matrix
+    var = X.var()
+    nonconst = var > 1e-12
+    if not nonconst.any():
+        return X, []
+    X = X.loc[:, nonconst]
+    if X.shape[1] < 2:
+        return X, []
+
+    corr = X.corr()
+    corr = corr.replace([np.inf, -np.inf], np.nan).fillna(0)
+    dist = 1 - np.abs(corr.values.astype(np.float64))
     dist = np.clip(dist, 0.0, None)
     np.fill_diagonal(dist, 0)
+    dist = np.nan_to_num(dist, nan=0.0, posinf=0.0, neginf=0.0)
     condensed = squareform(dist, checks=False)
     if condensed.size == 0:
         return X, []
+    if not np.isfinite(condensed).all():
+        condensed = np.nan_to_num(condensed, nan=0.0, posinf=0.0, neginf=0.0)
     Z = linkage(condensed, method="average")
-    # Cut at height corresponding to threshold: clusters where max|corr| <= threshold
-    # height in linkage is distance; we want clusters with dist >= 1 - threshold
     clusters = fcluster(Z, t=1.0 - threshold, criterion="distance")
     names = list(X.columns)
     to_keep = []
+    corr_arr = corr.values
     for c_id in np.unique(clusters):
         idx = np.where(clusters == c_id)[0]
         if len(idx) == 1:
             to_keep.append(names[idx[0]])
             continue
-        # Subset correlation matrix for this cluster
-        sub = corr[np.ix_(idx, idx)]
-        # Representative: feature with smallest max absolute correlation to others
+        sub = corr_arr[np.ix_(idx, idx)]
         max_abs = np.abs(sub).max(axis=1)
         rep = idx[np.argmin(max_abs)]
         to_keep.append(names[rep])
@@ -135,3 +131,41 @@ def select_top_k(
 ) -> list[str]:
     """Return top k feature names from ranking DataFrame."""
     return ranking_df[feature_col].head(k).tolist()
+
+
+# Core hypothesis-driven biomarkers to retain when possible (PART 5).
+NCI_ALWAYS_INCLUDE = [
+    "NCI_basic",
+    "NCI_spectral",
+    "NCI_fragmentation",
+    "NCI_temporal",
+    "recovery_score_efficiency",
+]
+
+
+def select_top_k_with_nci(
+    ranking_df: pd.DataFrame,
+    k: int,
+    available_columns: list[str] | None = None,
+    always_include: list[str] | None = None,
+    feature_col: str = "feature",
+) -> list[str]:
+    """
+    Return top k feature names, ensuring core NCI/recovery features are included if present.
+    Fills remaining slots from ranking. If always_include is None, uses NCI_ALWAYS_INCLUDE.
+    """
+    if always_include is None:
+        always_include = NCI_ALWAYS_INCLUDE
+    ranked = ranking_df[feature_col].tolist()
+    if available_columns is not None:
+        ranked = [f for f in ranked if f in available_columns]
+    selected = []
+    for f in always_include:
+        if f in ranked and f not in selected and (available_columns is None or f in available_columns):
+            selected.append(f)
+    for f in ranked:
+        if f not in selected:
+            selected.append(f)
+        if len(selected) >= k:
+            break
+    return selected[:k]
