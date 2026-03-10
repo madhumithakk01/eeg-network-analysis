@@ -73,6 +73,15 @@ WINDOWS_OUTPUT_DIR = os.environ.get(
     os.path.join(INTERMEDIATE_OUTPUT_PATH, "windows"),
 )
 
+# Sparsification stage: dense connectivity -> sparse connectivity (one file per patient)
+SPARSE_CONNECTIVITY_DIR = os.environ.get(
+    "SPARSE_CONNECTIVITY_DIR",
+    os.path.join(INTERMEDIATE_OUTPUT_PATH, "sparse_connectivity"),
+)
+
+# Fraction of edges to retain in sparse connectivity (density-based thresholding)
+SPARSE_DENSITY = float(os.environ.get("SPARSE_DENSITY", "0.15"))
+
 # Path to common EEG channel list (JSON array) from channel consistency stage
 COMMON_CHANNELS_PATH = os.environ.get(
     "COMMON_CHANNELS_PATH",
