@@ -45,8 +45,9 @@ def remove_highly_correlated(
 
     corr = X.corr().values
     np.fill_diagonal(corr, 0)
-    # Distance = 1 - |correlation| for clustering
+    # Distance = 1 - |correlation| for clustering; clip to avoid negative values from float precision
     dist = 1 - np.abs(corr)
+    dist = np.clip(dist, 0.0, None)
     np.fill_diagonal(dist, 0)
     condensed = squareform(dist, checks=False)
     if condensed.size == 0:
