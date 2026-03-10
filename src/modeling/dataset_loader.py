@@ -153,6 +153,77 @@ def load_dataset(
     return X, y, feature_names
 
 
+def load_patient_outcomes(
+    parquet_path: str,
+    metadata_path: str | None = None,
+    outcome_column: str = OUTCOME_COLUMN,
+) -> tuple[list[str], pd.Series]:
+    """
+    Load patient IDs and binary outcome labels (same merge/outcome logic as load_dataset).
+    For use by pipelines that load window-level data per patient (e.g. temporal DL).
+    """
+    if not os.path.isfile(parquet_path):
+        raise FileNotFoundError(f"Dataset not found: {parquet_path}")
+    df = pd.read_parquet(parquet_path)
+    if "patient_id" not in df.columns and "Patient" in df.columns:
+        df = df.rename(columns={"Patient": "patient_id"})
+    df["patient_id"] = df["patient_id"].astype(str).str.strip().apply(_normalize_patient_id)
+    if outcome_column not in df.columns and "outcome" in df.columns:
+        outcome_column = "outcome"
+    if outcome_column not in df.columns:
+        if metadata_path and os.path.isfile(metadata_path):
+            meta = pd.read_csv(metadata_path)
+            if "Patient" in meta.columns and "patient_id" not in meta.columns:
+                meta = meta.rename(columns={"Patient": "patient_id"})
+            if "patient_id" not in meta.columns:
+                raise ValueError("Metadata must have patient_id or Patient column.")
+            meta["patient_id"] = meta["patient_id"].astype(str).apply(_normalize_patient_id)
+            if "Outcome" in meta.columns:
+                out_col = "Outcome"
+            elif "outcome" in meta.columns:
+                out_col = "outcome"
+            elif "CPC" in meta.columns:
+                meta["Outcome"] = meta["CPC"].apply(
+                    lambda x: 1 if str(x).strip() in ("1", "2") else 0
+                )
+                out_col = "Outcome"
+            else:
+                raise ValueError("Metadata must have Outcome, outcome, or CPC column.")
+            if out_col != "Outcome":
+                def _map(v):
+                    s = str(v).strip()
+                    if s in ("Good", "good", "1"): return 1
+                    if s in ("Poor", "poor", "0"): return 0
+                    try: return 1 if int(float(v)) <= 2 else 0
+                    except (ValueError, TypeError): return np.nan
+                meta["Outcome"] = meta[out_col].apply(_map)
+            meta = meta[["patient_id", "Outcome"]].drop_duplicates(subset="patient_id")
+            df = df.merge(meta, on="patient_id", how="left")
+            outcome_column = "Outcome"
+        else:
+            raise ValueError(
+                f"Outcome column '{outcome_column}' not in dataset and no metadata_path provided."
+            )
+    y_raw = df[outcome_column]
+    y = pd.Series(index=df.index, dtype=float)
+    for i, v in y_raw.items():
+        v_str = str(v).strip()
+        if v in (1, "1") or v_str in OUTCOME_GOOD_VALUES or v_str in ("1", "2"):
+            y.loc[i] = 1
+        elif v in (0, "0") or v_str in OUTCOME_POOR_VALUES or v_str in ("3", "4", "5"):
+            y.loc[i] = 0
+        else:
+            try:
+                y.loc[i] = 1 if int(float(v)) <= 2 else 0
+            except (ValueError, TypeError):
+                y.loc[i] = np.nan
+    mask = y.notna()
+    df = df.loc[mask].reset_index(drop=True)
+    y = y.loc[mask].reset_index(drop=True).astype(int)
+    patient_ids = df["patient_id"].tolist()
+    return patient_ids, y
+
+
 def data_quality_checks(
     X: pd.DataFrame,
     max_missing_frac: float = 0.5,
