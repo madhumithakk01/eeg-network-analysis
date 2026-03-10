@@ -15,7 +15,7 @@ from .evaluation import run_cross_validation
 
 
 def get_rf_factory(**kwargs) -> Callable[[], Any]:
-    """Return a callable that returns a new RandomForestClassifier."""
+    """Return a callable that returns a new RandomForestClassifier. Uses class_weight='balanced' by default."""
     def factory():
         return RandomForestClassifier(
             n_estimators=kwargs.get("n_estimators", 200),
@@ -23,13 +23,14 @@ def get_rf_factory(**kwargs) -> Callable[[], Any]:
             min_samples_split=kwargs.get("min_samples_split", 5),
             min_samples_leaf=kwargs.get("min_samples_leaf", 2),
             random_state=kwargs.get("random_state", 42),
+            class_weight=kwargs.get("class_weight", "balanced"),
             n_jobs=-1,
         )
     return factory
 
 
 def get_xgboost_factory(**kwargs) -> Callable[[], Any]:
-    """Return a callable that returns a new XGBoost classifier."""
+    """Return a callable that returns a new XGBoost classifier. Pass scale_pos_weight for class balancing."""
     try:
         import xgboost as xgb
     except ImportError:
@@ -42,6 +43,7 @@ def get_xgboost_factory(**kwargs) -> Callable[[], Any]:
             subsample=kwargs.get("subsample", 0.8),
             colsample_bytree=kwargs.get("colsample_bytree", 0.8),
             random_state=kwargs.get("random_state", 42),
+            scale_pos_weight=kwargs.get("scale_pos_weight", 1.0),
             use_label_encoder=False,
             eval_metric="logloss",
         )
@@ -49,7 +51,7 @@ def get_xgboost_factory(**kwargs) -> Callable[[], Any]:
 
 
 def get_lightgbm_factory(**kwargs) -> Callable[[], Any]:
-    """Return a callable that returns a new LightGBM classifier."""
+    """Return a callable that returns a new LightGBM classifier. Uses is_unbalance=True by default for balancing."""
     try:
         import lightgbm as lgb
     except ImportError:
@@ -62,6 +64,7 @@ def get_lightgbm_factory(**kwargs) -> Callable[[], Any]:
             subsample=kwargs.get("subsample", 0.8),
             colsample_bytree=kwargs.get("colsample_bytree", 0.8),
             random_state=kwargs.get("random_state", 42),
+            is_unbalance=kwargs.get("is_unbalance", True),
             verbose=-1,
         )
     return factory
