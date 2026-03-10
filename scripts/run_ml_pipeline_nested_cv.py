@@ -33,11 +33,12 @@ from configs.config import (
     PATIENT_TEMPORAL_DATASET_PATH,
 )
 from src.modeling.dataset_loader import load_dataset, data_quality_checks
-from src.modeling.evaluation import compute_metrics
+from src.modeling.evaluation import compute_metrics, find_best_threshold_youden
 from src.modeling.feature_selection import (
     remove_highly_correlated,
     rank_features_multi_method,
     select_top_k,
+    select_top_k_with_nci,
 )
 from src.modeling.hyperparameter_search import run_optuna
 from src.modeling.interpretability import (
@@ -105,8 +106,17 @@ def main() -> int:
     print("=" * 60)
 
     print("\nStage 1 — Data loading")
+    print(f"Dataset path: {data_path}")
     X, y, feature_names = load_dataset(data_path, metadata_path=metadata_path, outcome_column=args.outcome)
-    print(f"Loaded: {X.shape[0]} patients, {X.shape[1]} features. Class counts: {dict(y.value_counts())}")
+    n_rows = X.shape[0]
+    try:
+        df_check = pd.read_parquet(data_path)
+        n_patients = int(df_check["patient_id"].nunique()) if "patient_id" in df_check.columns else n_rows
+    except Exception:
+        n_patients = n_rows
+    print(f"Loaded: {n_rows} rows, {n_patients} unique patients, {X.shape[1]} features. Class counts: {dict(y.value_counts())}")
+    if n_rows < 250:
+        print("WARNING: Dataset has fewer than 250 patients. The full cohort may not be loaded. Expected ~294.")
 
     print("\nStage 2 — Data quality (global, no leakage)")
     X_clean, dropped, report = data_quality_checks(
@@ -141,8 +151,11 @@ def main() -> int:
         X_test_corr = X_test_outer[test_cols].copy()
 
         ranking = rank_features_multi_method(X_train_corr, y_train_outer, random_state=42)
-        k = min(args.top_k, len(ranking))
-        selected = select_top_k(ranking, k=k)
+        n_train = len(y_train_outer)
+        effective_k = min(args.top_k, 25) if n_train >= 150 else min(args.top_k, 15)
+        selected = select_top_k_with_nci(
+            ranking, k=effective_k, available_columns=X_train_corr.columns.tolist()
+        )
         X_train_sel = X_train_corr[selected].copy()
         X_test_sel = X_test_corr[[c for c in selected if c in X_test_corr.columns]].copy()
         if X_test_sel.shape[1] != len(selected):
@@ -169,7 +182,11 @@ def main() -> int:
         else:
             best_params_per_fold.append({})
 
-        factory = _get_factory_with_params(args.model, best_params_per_fold[-1])
+        scale_pos_weight = (y_train_outer == 0).sum() / max((y_train_outer == 1).sum(), 1)
+        fold_params = dict(best_params_per_fold[-1])
+        fold_params["scale_pos_weight"] = scale_pos_weight
+        fold_params["is_unbalance"] = True
+        factory = _get_factory_with_params(args.model, fold_params)
 
         # Scale on train_outer, transform test_outer
         scaler = StandardScaler()
@@ -181,8 +198,10 @@ def main() -> int:
         model = factory()
         model.fit(X_train_s, y_train_outer)
 
+        y_proba_train = model.predict_proba(X_train_s)[:, 1]
+        thresh = find_best_threshold_youden(y_train_outer.values, y_proba_train)
         y_proba = model.predict_proba(X_test_s)[:, 1]
-        y_pred = (y_proba >= 0.5).astype(int)
+        y_pred = (y_proba >= thresh).astype(int)
 
         m = compute_metrics(y_test_outer.values, y_pred, y_proba)
         m["fold"] = outer_fold
@@ -229,7 +248,10 @@ def main() -> int:
     print("\n--- Optional final model (full data) ---")
     X_corr, _ = remove_highly_correlated(X_clean, threshold=args.correlation_threshold)
     ranking_global = rank_features_multi_method(X_corr, y, random_state=42)
-    selected_global = select_top_k(ranking_global, k=min(args.top_k, len(ranking_global)))
+    effective_k_global = min(args.top_k, 25) if len(y) >= 150 else min(args.top_k, 15)
+    selected_global = select_top_k_with_nci(
+        ranking_global, k=effective_k_global, available_columns=X_corr.columns.tolist()
+    )
     X_sel_global = X_corr[selected_global].copy()
 
     if args.optuna_trials > 0:
@@ -242,6 +264,8 @@ def main() -> int:
             best_params_final = {}
     else:
         best_params_final = {}
+    scale_pos_weight_final = (y == 0).sum() / max((y == 1).sum(), 1)
+    best_params_final = dict(best_params_final, scale_pos_weight=scale_pos_weight_final, is_unbalance=True)
     final_factory = _get_factory_with_params(args.model, best_params_final)
     final_model, final_scaler, _ = train_final_model(
         X_sel_global, y, final_factory, scale=True, random_state=42
