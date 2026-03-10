@@ -36,6 +36,32 @@ def stratified_kfold_splits(
         yield train_idx, val_idx
 
 
+def find_best_threshold_youden(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    thresholds: np.ndarray | None = None,
+) -> float:
+    """
+    Find probability threshold that maximizes Youden index J = sensitivity + specificity - 1.
+    """
+    y_true = np.asarray(y_true).ravel()
+    y_proba = np.asarray(y_proba).ravel()
+    if thresholds is None:
+        thresholds = np.linspace(0.05, 0.95, 19)
+    best_j = -1.0
+    best_t = 0.5
+    for t in thresholds:
+        y_pred = (y_proba >= t).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+        sens = tp / max(1, tp + fn)
+        spec = tn / max(1, tn + fp)
+        j = sens + spec - 1
+        if j > best_j:
+            best_j = j
+            best_t = t
+    return float(best_t)
+
+
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None) -> dict[str, float]:
     """Compute ROC-AUC, accuracy, F1, sensitivity, specificity."""
     y_true = np.asarray(y_true).ravel()
@@ -66,10 +92,12 @@ def run_cross_validation(
     n_splits: int = 5,
     random_state: int = 42,
     scale: bool = True,
+    use_youden_threshold: bool = True,
 ) -> dict[str, Any]:
     """
     Run Stratified K-Fold CV: fit scaler and model on train, evaluate on val per fold.
-    model_factory() returns a new estimator with .fit(X,y) and .predict_proba(X).
+    If use_youden_threshold is True, the classification threshold is chosen to maximize
+    Youden index (sensitivity + specificity - 1) on validation predictions.
     """
     X = X.copy()
     y = pd.Series(y).reset_index(drop=True)
@@ -95,7 +123,11 @@ def run_cross_validation(
         model = model_factory()
         model.fit(X_train_s, y_train)
         y_proba = model.predict_proba(X_val_s)[:, 1]
-        y_pred = (y_proba >= 0.5).astype(int)
+        if use_youden_threshold:
+            thresh = find_best_threshold_youden(y_val.values, y_proba)
+            y_pred = (y_proba >= thresh).astype(int)
+        else:
+            y_pred = (y_proba >= 0.5).astype(int)
         m = compute_metrics(y_val.values, y_pred, y_proba)
         m["fold"] = fold
         fold_metrics.append(m)
