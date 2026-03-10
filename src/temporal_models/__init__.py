@@ -10,6 +10,12 @@ from __future__ import annotations
 from .dataset import WindowLevelDataset
 from .models import TemporalCNN
 from .training import train_epoch, evaluate, run_patient_cv
+from .threshold_evaluation import (
+    find_optimal_threshold_youden,
+    find_optimal_threshold_f1,
+    compute_metrics_at_threshold,
+    run_threshold_optimization,
+)
 
 __all__ = [
     "WindowLevelDataset",
@@ -17,4 +23,8 @@ __all__ = [
     "train_epoch",
     "evaluate",
     "run_patient_cv",
+    "find_optimal_threshold_youden",
+    "find_optimal_threshold_f1",
+    "compute_metrics_at_threshold",
+    "run_threshold_optimization",
 ]

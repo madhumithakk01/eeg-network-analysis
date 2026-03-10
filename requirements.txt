@@ -20,3 +20,6 @@ optuna>=3.0.0
 shap>=0.42.0
 # Optional: change-point detection for collapse time (run_temporal_feature_generation works without it)
 # ruptures>=1.1.9
+
+# Temporal deep learning pipeline (run_temporal_dl.py); use GPU in Colab
+torch>=2.0.0

@@ -170,6 +170,8 @@ def run_patient_cv(
 
         best_roc = 0.0
         best_metrics: Optional[Dict[str, float]] = None
+        best_y_true: Optional[np.ndarray] = None
+        best_y_proba: Optional[np.ndarray] = None
         for ep in range(epochs):
             train_epoch(model, train_loader, criterion, optimizer, device)
             y_v, p_v, pred_v = evaluate(model, val_loader, device)
@@ -177,12 +179,21 @@ def run_patient_cv(
             if m["roc_auc"] > best_roc:
                 best_roc = m["roc_auc"]
                 best_metrics = m
+                best_y_true = y_v
+                best_y_proba = p_v
         if best_metrics is None:
             y_v, p_v, pred_v = evaluate(model, val_loader, device)
             best_metrics = compute_metrics(y_v, pred_v, p_v)
+            best_y_true = y_v
+            best_y_proba = p_v
         best_metrics["fold"] = fold
         fold_metrics.append(best_metrics)
-        all_fold_results.append({"fold": fold, "metrics": best_metrics})
+        all_fold_results.append({
+            "fold": fold,
+            "metrics": best_metrics,
+            "y_true": best_y_true.tolist() if best_y_true is not None else [],
+            "y_proba": best_y_proba.tolist() if best_y_proba is not None else [],
+        })
         print(
             f"  Fold {fold + 1}/{n_splits} ROC-AUC={best_metrics['roc_auc']:.4f} "
             f"F1={best_metrics['f1']:.4f} Sens={best_metrics['sensitivity']:.4f} "
@@ -199,6 +210,14 @@ def run_patient_cv(
     }
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
+        out = {
+            "fold_metrics": fold_metrics,
+            "summary": mean_metrics,
+            "fold_predictions": [
+                {"fold": r["fold"], "y_true": r["y_true"], "y_proba": r["y_proba"]}
+                for r in all_fold_results
+            ],
+        }
         with open(os.path.join(output_dir, "temporal_dl_cv_metrics.json"), "w") as f:
-            json.dump({"fold_metrics": fold_metrics, "summary": mean_metrics}, f, indent=2)
+            json.dump(out, f, indent=2)
     return {"fold_metrics": fold_metrics, "summary": mean_metrics, "all_folds": all_fold_results}
