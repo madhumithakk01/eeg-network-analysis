@@ -13,5 +13,10 @@ wfdb==4.3.0
 jedi>=0.16
 scipy==1.17.0
 scikit-learn==1.8.0
+# ML pipeline (run_ml_pipeline.py)
+xgboost>=1.7.0
+lightgbm>=4.0.0
+optuna>=3.0.0
+shap>=0.42.0
 # Optional: change-point detection for collapse time (run_temporal_feature_generation works without it)
 # ruptures>=1.1.9
