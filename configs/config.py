@@ -125,6 +125,33 @@ BANDPASS_LOW = 0.5
 BANDPASS_HIGH = 40.0
 
 # ---------------------------------------------------------------------------
+# Window-level EEG artifact QC (Step 2.1)
+# ---------------------------------------------------------------------------
+
+# Keep disabled by default to preserve baseline behavior; enable via CLI or env.
+PREPROCESS_ENABLE_WINDOW_QC = os.environ.get("PREPROCESS_ENABLE_WINDOW_QC", "0") == "1"
+
+# Relative flat-channel rule: channel std < max(abs_floor, ratio * median_channel_std)
+PREPROCESS_QC_FLAT_STD_MIN_ABS = float(os.environ.get("PREPROCESS_QC_FLAT_STD_MIN_ABS", "1e-8"))
+PREPROCESS_QC_FLAT_STD_MIN_RATIO = float(os.environ.get("PREPROCESS_QC_FLAT_STD_MIN_RATIO", "1e-3"))
+PREPROCESS_QC_MAX_FLAT_CHANNEL_FRAC = float(os.environ.get("PREPROCESS_QC_MAX_FLAT_CHANNEL_FRAC", "0.2"))
+
+# Low-uniqueness rule (clipping/quantization proxy)
+PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO = float(os.environ.get("PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO", "0.02"))
+PREPROCESS_QC_MAX_LOW_UNIQUE_CHANNEL_FRAC = float(
+    os.environ.get("PREPROCESS_QC_MAX_LOW_UNIQUE_CHANNEL_FRAC", "0.3")
+)
+
+# Robust amplitude outlier rule
+PREPROCESS_QC_HIGH_AMP_ROBUST_Z = float(os.environ.get("PREPROCESS_QC_HIGH_AMP_ROBUST_Z", "12.0"))
+PREPROCESS_QC_MAX_HIGH_AMP_FRAC = float(os.environ.get("PREPROCESS_QC_MAX_HIGH_AMP_FRAC", "0.02"))
+
+# Mains power ratio rule (power around mains / power in 1-40 Hz)
+PREPROCESS_QC_MAINS_HZ = float(os.environ.get("PREPROCESS_QC_MAINS_HZ", "50.0"))
+PREPROCESS_QC_MAINS_BAND_HZ = float(os.environ.get("PREPROCESS_QC_MAINS_BAND_HZ", "1.0"))
+PREPROCESS_QC_MAX_MAINS_RATIO = float(os.environ.get("PREPROCESS_QC_MAX_MAINS_RATIO", "0.35"))
+
+# ---------------------------------------------------------------------------
 # Batch and patient identification
 # ---------------------------------------------------------------------------
 

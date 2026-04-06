@@ -32,6 +32,17 @@ from configs.config import (
     COMMON_CHANNELS_PATH,
     EEG_RAW_ROOT,
     MAX_EEG_SEGMENTS,
+    PREPROCESS_ENABLE_WINDOW_QC,
+    PREPROCESS_QC_FLAT_STD_MIN_ABS,
+    PREPROCESS_QC_FLAT_STD_MIN_RATIO,
+    PREPROCESS_QC_HIGH_AMP_ROBUST_Z,
+    PREPROCESS_QC_MAINS_BAND_HZ,
+    PREPROCESS_QC_MAINS_HZ,
+    PREPROCESS_QC_MAX_FLAT_CHANNEL_FRAC,
+    PREPROCESS_QC_MAX_HIGH_AMP_FRAC,
+    PREPROCESS_QC_MAX_LOW_UNIQUE_CHANNEL_FRAC,
+    PREPROCESS_QC_MAX_MAINS_RATIO,
+    PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO,
     TEMP_DIR,
     WINDOWS_OUTPUT_DIR,
     WINDOW_SECONDS,
@@ -55,6 +66,16 @@ def main() -> int:
         type=str,
         default=None,
         help="Output directory for connectivity .npy files (default: WINDOWS_OUTPUT_DIR).",
+    )
+    parser.add_argument(
+        "--enable-window-qc",
+        action="store_true",
+        help="Enable window-level artifact QC gate before connectivity computation.",
+    )
+    parser.add_argument(
+        "--disable-window-qc",
+        action="store_true",
+        help="Force-disable window-level artifact QC gate.",
     )
     args = parser.parse_args()
 
@@ -83,10 +104,31 @@ def main() -> int:
         return 1
 
     patient_ids = load_patient_ids(split_path)
+    if args.disable_window_qc:
+        enable_window_qc = False
+    elif args.enable_window_qc:
+        enable_window_qc = True
+    else:
+        enable_window_qc = PREPROCESS_ENABLE_WINDOW_QC
+
+    qc_params = {
+        "flat_std_min_abs": PREPROCESS_QC_FLAT_STD_MIN_ABS,
+        "flat_std_min_ratio": PREPROCESS_QC_FLAT_STD_MIN_RATIO,
+        "max_flat_channel_frac": PREPROCESS_QC_MAX_FLAT_CHANNEL_FRAC,
+        "min_unique_value_ratio": PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO,
+        "max_low_unique_channel_frac": PREPROCESS_QC_MAX_LOW_UNIQUE_CHANNEL_FRAC,
+        "high_amp_robust_z": PREPROCESS_QC_HIGH_AMP_ROBUST_Z,
+        "max_high_amp_frac": PREPROCESS_QC_MAX_HIGH_AMP_FRAC,
+        "mains_hz": PREPROCESS_QC_MAINS_HZ,
+        "mains_band_hz": PREPROCESS_QC_MAINS_BAND_HZ,
+        "max_mains_ratio": PREPROCESS_QC_MAX_MAINS_RATIO,
+    }
+
     print(f"Loaded {len(patient_ids)} patients from {split_path}")
     print(f"Common channels: {len(common_channels)}")
     print(f"EEG root: {EEG_RAW_ROOT}")
     print(f"Output dir: {output_dir}")
+    print(f"Window QC enabled: {enable_window_qc}")
 
     n_processed = 0
     n_skipped = 0
@@ -102,6 +144,8 @@ def main() -> int:
             bandpass_high=BANDPASS_HIGH,
             max_segments=MAX_EEG_SEGMENTS,
             temp_dir=TEMP_DIR,
+            enable_window_qc=enable_window_qc,
+            qc_params=qc_params,
         )
         if result["processed"]:
             n_processed += 1

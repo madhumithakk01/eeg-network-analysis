@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from src.connectivity.pearson import compute_connectivity_batch
+from .artifact_qc import filter_windows_by_quality
 from .eeg_loader import load_eeg_segment
 from .signal_filter import bandpass_filter
 from .windowing import segment_into_windows_list
@@ -48,6 +49,8 @@ def process_patient(
     max_segments: int = 48,
     temp_dir: Optional[str] = None,
     validate_connectivity: bool = False,
+    enable_window_qc: bool = False,
+    qc_params: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
     Process one patient: load up to max_segments, filter, average reference,
@@ -115,6 +118,7 @@ def process_patient(
     n_segments_processed = 0
     n_windows_total = 0
     n_channels_expected = len(common_channel_names)
+    n_windows_rejected_qc = 0
 
     # Minimum segment duration (seconds) to allow a single full-segment window when 30s windowing yields 0
     MIN_SEGMENT_DURATION_SEC = 1.0
@@ -177,6 +181,37 @@ def process_patient(
                     f"segment_duration_sec={segment_duration_sec:.2f} n_full_30s_windows={n_samples // max(1, required_samples_30s)}"
                 )
                 continue
+        if enable_window_qc and windows_list:
+            qc_params = qc_params or {}
+            windows_list, qc_stats = filter_windows_by_quality(
+                windows_list,
+                fs,
+                flat_std_min_abs=float(qc_params.get("flat_std_min_abs", 1e-8)),
+                flat_std_min_ratio=float(qc_params.get("flat_std_min_ratio", 1e-3)),
+                max_flat_channel_frac=float(qc_params.get("max_flat_channel_frac", 0.2)),
+                min_unique_value_ratio=float(qc_params.get("min_unique_value_ratio", 0.02)),
+                max_low_unique_channel_frac=float(qc_params.get("max_low_unique_channel_frac", 0.3)),
+                high_amp_robust_z=float(qc_params.get("high_amp_robust_z", 12.0)),
+                max_high_amp_frac=float(qc_params.get("max_high_amp_frac", 0.02)),
+                mains_hz=float(qc_params.get("mains_hz", 50.0)),
+                mains_band_hz=float(qc_params.get("mains_band_hz", 1.0)),
+                max_mains_ratio=float(qc_params.get("max_mains_ratio", 0.35)),
+            )
+            rejected = int(qc_stats["n_windows_total"] - qc_stats["n_windows_kept"])
+            n_windows_rejected_qc += rejected
+            if rejected > 0:
+                print(
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | "
+                    f"window_qc_kept={qc_stats['n_windows_kept']} rejected={rejected}"
+                )
+            if not windows_list:
+                print(
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                    "reason=all_windows_rejected_by_qc"
+                )
+                continue
+
+        n_windows_seg = len(windows_list)
         window_shape = windows_list[0].shape if windows_list else None
         print(
             f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | signal_shape={signal_shape} fs={fs} | "
@@ -218,6 +253,7 @@ def process_patient(
             "reason": "no_windows",
             "n_segments_processed": 0,
             "n_windows": 0,
+            "n_windows_rejected_qc": n_windows_rejected_qc,
             "n_connectivity_matrices": 0,
             "output_path": None,
             "error": None,
@@ -244,6 +280,7 @@ def process_patient(
             "reason": "write_failed",
             "n_segments_processed": n_segments_processed,
             "n_windows": n_windows_total,
+            "n_windows_rejected_qc": n_windows_rejected_qc,
             "n_connectivity_matrices": connectivity_array.shape[0],
             "output_path": None,
             "error": str(e),
@@ -254,6 +291,7 @@ def process_patient(
         f"  [patient_processor] patient_id={patient_id} | "
         f"segments_processed={n_segments_processed} | "
         f"windows_produced={n_windows_total} | "
+        f"windows_rejected_qc={n_windows_rejected_qc} | "
         f"connectivity_matrices_saved={n_matrices}"
     )
     return {
@@ -262,6 +300,7 @@ def process_patient(
         "reason": None,
         "n_segments_processed": n_segments_processed,
         "n_windows": n_windows_total,
+        "n_windows_rejected_qc": n_windows_rejected_qc,
         "n_connectivity_matrices": n_matrices,
         "output_path": final_path,
         "error": None,
