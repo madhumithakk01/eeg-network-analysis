@@ -16,6 +16,7 @@ import numpy as np
 from src.connectivity.pearson import compute_connectivity_batch
 from .artifact_qc import filter_windows_by_quality
 from .eeg_loader import load_eeg_segment
+from .resample import resample_signal_poly
 from .signal_filter import bandpass_filter
 from .windowing import segment_into_windows_list
 
@@ -53,6 +54,8 @@ def process_patient(
     qc_params: Optional[Dict[str, float]] = None,
     enable_short_segment_salvage: bool = True,
     min_salvage_duration_sec: float = 1.0,
+    enable_resampling: bool = False,
+    target_fs: float = 128.0,
 ) -> Dict[str, Any]:
     """
     Process one patient: load up to max_segments, filter, average reference,
@@ -149,35 +152,52 @@ def process_patient(
             continue
 
         # Process each segment with its own sampling rate; no fs_mismatch skip (reduces data loss)
+        fs_proc = fs
+        data_proc = data
+        if enable_resampling:
+            try:
+                data_proc, fs_proc = resample_signal_poly(data, fs_in=fs, fs_target=float(target_fs))
+                print(
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | "
+                    f"resampled_fs={fs}->{fs_proc} samples={data.shape[0]}->{data_proc.shape[0]}"
+                )
+            except Exception as e:
+                print(
+                    f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
+                    f"reason=resample_failure | fs={fs} target_fs={target_fs} | exception={e!r}"
+                )
+                continue
+
         try:
             filtered = bandpass_filter(
-                data, fs, low_hz=bandpass_low, high_hz=bandpass_high
+                data_proc, fs_proc, low_hz=bandpass_low, high_hz=bandpass_high
             )
         except Exception as e:
             print(
                 f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
-                f"reason=filter_failure | fs={fs} | exception={e!r}"
+                f"reason=filter_failure | fs={fs_proc} | exception={e!r}"
             )
             continue
         filtered = filtered - filtered.mean(axis=1, keepdims=True)
 
-        windows_list = segment_into_windows_list(filtered, fs, window_seconds)
+        windows_list = segment_into_windows_list(filtered, fs_proc, window_seconds)
         n_windows_seg = len(windows_list)
         if n_windows_seg == 0:
-            segment_duration_sec = n_samples / fs if fs > 0 else 0.0
-            required_samples_30s = int(round(window_seconds * fs)) if fs > 0 else 0
+            n_samples_proc = filtered.shape[0]
+            segment_duration_sec = n_samples_proc / fs_proc if fs_proc > 0 else 0.0
+            required_samples_30s = int(round(window_seconds * fs_proc)) if fs_proc > 0 else 0
             if enable_short_segment_salvage and segment_duration_sec >= float(min_salvage_duration_sec):
                 # Salvage short segment as one full-segment window (one connectivity matrix)
                 windows_list = segment_into_windows_list(
-                    filtered, fs, window_seconds=segment_duration_sec
+                    filtered, fs_proc, window_seconds=segment_duration_sec
                 )
                 n_windows_seg = len(windows_list)
             if n_windows_seg == 0:
                 print(
                     f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
-                    f"reason=windowing_returned_0_windows | signal_shape={signal_shape} fs={fs} "
+                    f"reason=windowing_returned_0_windows | signal_shape={signal_shape} fs={fs_proc} "
                     f"window_seconds={window_seconds} required_samples_30s={required_samples_30s} "
-                    f"segment_duration_sec={segment_duration_sec:.2f} n_full_30s_windows={n_samples // max(1, required_samples_30s)}"
+                    f"segment_duration_sec={segment_duration_sec:.2f} n_full_30s_windows={n_samples_proc // max(1, required_samples_30s)}"
                 )
                 continue
         if enable_window_qc and windows_list:
@@ -213,7 +233,7 @@ def process_patient(
         n_windows_seg = len(windows_list)
         window_shape = windows_list[0].shape if windows_list else None
         print(
-            f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | signal_shape={signal_shape} fs={fs} | "
+            f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} | signal_shape={signal_shape} fs={fs_proc} | "
             f"channels={signal_shape[1]} windows={n_windows_seg} window_shape={window_shape}"
         )
 

@@ -167,6 +167,16 @@ PREPROCESS_MIN_SALVAGE_DURATION_SEC = float(
 )
 
 # ---------------------------------------------------------------------------
+# Sampling-rate harmonization (Step 2.3)
+# ---------------------------------------------------------------------------
+
+# Keep disabled by default to preserve prior behavior.
+PREPROCESS_ENABLE_RESAMPLING = os.environ.get("PREPROCESS_ENABLE_RESAMPLING", "0") == "1"
+
+# Target sampling frequency (Hz) when resampling is enabled.
+PREPROCESS_TARGET_FS = float(os.environ.get("PREPROCESS_TARGET_FS", "128.0"))
+
+# ---------------------------------------------------------------------------
 # Batch and patient identification
 # ---------------------------------------------------------------------------
 

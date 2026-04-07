@@ -44,7 +44,9 @@ from configs.config import (
     PREPROCESS_QC_MAX_MAINS_RATIO,
     PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO,
     PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE,
+    PREPROCESS_ENABLE_RESAMPLING,
     PREPROCESS_MIN_SALVAGE_DURATION_SEC,
+    PREPROCESS_TARGET_FS,
     TEMP_DIR,
     WINDOWS_OUTPUT_DIR,
     WINDOW_SECONDS,
@@ -89,6 +91,22 @@ def main() -> int:
         type=float,
         default=None,
         help=f"Minimum segment duration in seconds to allow salvage (default: {PREPROCESS_MIN_SALVAGE_DURATION_SEC}).",
+    )
+    parser.add_argument(
+        "--enable-resampling",
+        action="store_true",
+        help="Enable sampling-rate harmonization via polyphase resampling to target fs.",
+    )
+    parser.add_argument(
+        "--disable-resampling",
+        action="store_true",
+        help="Force-disable sampling-rate harmonization.",
+    )
+    parser.add_argument(
+        "--target-fs",
+        type=float,
+        default=None,
+        help=f"Target sampling frequency in Hz when resampling is enabled (default: {PREPROCESS_TARGET_FS}).",
     )
     args = parser.parse_args()
 
@@ -145,6 +163,13 @@ def main() -> int:
         if args.min_salvage_duration_sec is not None
         else PREPROCESS_MIN_SALVAGE_DURATION_SEC
     )
+    if args.disable_resampling:
+        enable_resampling = False
+    elif args.enable_resampling:
+        enable_resampling = True
+    else:
+        enable_resampling = PREPROCESS_ENABLE_RESAMPLING
+    target_fs = args.target_fs if args.target_fs is not None else PREPROCESS_TARGET_FS
 
     print(f"Loaded {len(patient_ids)} patients from {split_path}")
     print(f"Common channels: {len(common_channels)}")
@@ -154,6 +179,9 @@ def main() -> int:
     print(f"Short-segment salvage enabled: {enable_short_segment_salvage}")
     if enable_short_segment_salvage:
         print(f"Min salvage duration (sec): {min_salvage_duration_sec}")
+    print(f"Resampling enabled: {enable_resampling}")
+    if enable_resampling:
+        print(f"Target fs (Hz): {target_fs}")
 
     n_processed = 0
     n_skipped = 0
@@ -173,6 +201,8 @@ def main() -> int:
             qc_params=qc_params,
             enable_short_segment_salvage=enable_short_segment_salvage,
             min_salvage_duration_sec=min_salvage_duration_sec,
+            enable_resampling=enable_resampling,
+            target_fs=target_fs,
         )
         if result["processed"]:
             n_processed += 1
