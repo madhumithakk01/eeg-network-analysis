@@ -101,37 +101,54 @@ def process_patient(
             "processed": False,
             "skipped": True,
             "reason": "output_exists",
+            "n_segments_total": 0,
             "n_segments_processed": 0,
+            "n_segments_failed": 0,
             "n_windows": 0,
+            "n_windows_pre_qc": 0,
             "n_connectivity_matrices": 0,
             "output_path": final_path,
+            "failure_reasons": {},
             "error": None,
         }
 
     patient_dir = os.path.join(eeg_raw_root, patient_id.strip())
     segment_paths = _list_segment_paths(patient_dir, max_segments)
+    n_segments_total = len(segment_paths)
     if not segment_paths:
         return {
             "processed": False,
             "skipped": True,
             "reason": "no_segments",
+            "n_segments_total": 0,
             "n_segments_processed": 0,
+            "n_segments_failed": 0,
             "n_windows": 0,
+            "n_windows_pre_qc": 0,
             "n_connectivity_matrices": 0,
             "output_path": None,
+            "failure_reasons": {"no_segments": 1},
             "error": None,
         }
 
     all_connectivity: List[np.ndarray] = []
     n_segments_processed = 0
+    n_segments_failed = 0
     n_windows_total = 0
+    n_windows_pre_qc = 0
     n_channels_expected = len(common_channel_names)
     n_windows_rejected_qc = 0
+    failure_reasons: Dict[str, int] = {}
+
+    def _inc(reason: str) -> None:
+        failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
 
     for seg_idx, record_path in enumerate(segment_paths):
         try:
             data, fs = load_eeg_segment(record_path, common_channel_names)
         except Exception as e:
+            n_segments_failed += 1
+            _inc("load_exception")
             print(
                 f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                 f"reason=load_exception | exception={e!r}"
@@ -148,6 +165,8 @@ def process_patient(
         signal_shape = data.shape
         n_samples = signal_shape[0]
         if signal_shape[1] != n_channels_expected:
+            n_segments_failed += 1
+            _inc("missing_channels")
             print(
                 f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                 f"reason=missing_channels | expected={n_channels_expected} got={signal_shape[1]}"
@@ -165,6 +184,8 @@ def process_patient(
                     f"resampled_fs={fs}->{fs_proc} samples={data.shape[0]}->{data_proc.shape[0]}"
                 )
             except Exception as e:
+                n_segments_failed += 1
+                _inc("resample_failure")
                 print(
                     f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                     f"reason=resample_failure | fs={fs} target_fs={target_fs} | exception={e!r}"
@@ -181,6 +202,8 @@ def process_patient(
                 notch_q=notch_q,
             )
         except Exception as e:
+            n_segments_failed += 1
+            _inc("filter_failure")
             print(
                 f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                 f"reason=filter_failure | fs={fs_proc} | exception={e!r}"
@@ -190,6 +213,7 @@ def process_patient(
 
         windows_list = segment_into_windows_list(filtered, fs_proc, window_seconds)
         n_windows_seg = len(windows_list)
+        n_windows_pre_qc += n_windows_seg
         if n_windows_seg == 0:
             n_samples_proc = filtered.shape[0]
             segment_duration_sec = n_samples_proc / fs_proc if fs_proc > 0 else 0.0
@@ -200,7 +224,10 @@ def process_patient(
                     filtered, fs_proc, window_seconds=segment_duration_sec
                 )
                 n_windows_seg = len(windows_list)
+                n_windows_pre_qc += n_windows_seg
             if n_windows_seg == 0:
+                n_segments_failed += 1
+                _inc("windowing_returned_0_windows")
                 print(
                     f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                     f"reason=windowing_returned_0_windows | signal_shape={signal_shape} fs={fs_proc} "
@@ -232,6 +259,8 @@ def process_patient(
                     f"window_qc_kept={qc_stats['n_windows_kept']} rejected={rejected}"
                 )
             if not windows_list:
+                n_segments_failed += 1
+                _inc("all_windows_rejected_by_qc")
                 print(
                     f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                     "reason=all_windows_rejected_by_qc"
@@ -249,6 +278,8 @@ def process_patient(
             windows_array = np.stack(windows_list, axis=0)
             conn = compute_connectivity_batch(windows_array)
         except Exception as e:
+            n_segments_failed += 1
+            _inc("connectivity_failure")
             print(
                 f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                 f"reason=connectivity_failure | exception={e!r}"
@@ -264,6 +295,8 @@ def process_patient(
                 from src.utils.connectivity_checks import validate_connectivity_batch as _validate
                 _validate(conn)
             except Exception as e:
+                n_segments_failed += 1
+                _inc("validation_failure")
                 print(
                     f"  [segment_debug] patient_id={patient_id} seg_idx={seg_idx} path={record_path} | "
                     f"reason=validation_failure | exception={e!r}"
@@ -278,11 +311,15 @@ def process_patient(
             "processed": False,
             "skipped": True,
             "reason": "no_windows",
+            "n_segments_total": n_segments_total,
             "n_segments_processed": 0,
+            "n_segments_failed": n_segments_failed,
             "n_windows": 0,
+            "n_windows_pre_qc": n_windows_pre_qc,
             "n_windows_rejected_qc": n_windows_rejected_qc,
             "n_connectivity_matrices": 0,
             "output_path": None,
+            "failure_reasons": failure_reasons,
             "error": None,
         }
 
@@ -305,11 +342,15 @@ def process_patient(
             "processed": False,
             "skipped": False,
             "reason": "write_failed",
+            "n_segments_total": n_segments_total,
             "n_segments_processed": n_segments_processed,
+            "n_segments_failed": n_segments_failed,
             "n_windows": n_windows_total,
+            "n_windows_pre_qc": n_windows_pre_qc,
             "n_windows_rejected_qc": n_windows_rejected_qc,
             "n_connectivity_matrices": connectivity_array.shape[0],
             "output_path": None,
+            "failure_reasons": failure_reasons,
             "error": str(e),
         }
 
@@ -317,7 +358,9 @@ def process_patient(
     print(
         f"  [patient_processor] patient_id={patient_id} | "
         f"segments_processed={n_segments_processed} | "
+        f"segments_failed={n_segments_failed} | "
         f"windows_produced={n_windows_total} | "
+        f"windows_pre_qc={n_windows_pre_qc} | "
         f"windows_rejected_qc={n_windows_rejected_qc} | "
         f"connectivity_matrices_saved={n_matrices}"
     )
@@ -325,10 +368,14 @@ def process_patient(
         "processed": True,
         "skipped": False,
         "reason": None,
+        "n_segments_total": n_segments_total,
         "n_segments_processed": n_segments_processed,
+        "n_segments_failed": n_segments_failed,
         "n_windows": n_windows_total,
+        "n_windows_pre_qc": n_windows_pre_qc,
         "n_windows_rejected_qc": n_windows_rejected_qc,
         "n_connectivity_matrices": n_matrices,
         "output_path": final_path,
+        "failure_reasons": failure_reasons,
         "error": None,
     }

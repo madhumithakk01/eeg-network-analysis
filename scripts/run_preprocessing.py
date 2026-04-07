@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import sys
+import pandas as pd
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
@@ -73,6 +74,12 @@ def main() -> int:
         type=str,
         default=None,
         help="Output directory for connectivity .npy files (default: WINDOWS_OUTPUT_DIR).",
+    )
+    parser.add_argument(
+        "--audit-csv",
+        type=str,
+        default=None,
+        help="Optional path to save per-patient preprocessing audit CSV.",
     )
     parser.add_argument(
         "--enable-window-qc",
@@ -229,6 +236,7 @@ def main() -> int:
         print(f"Notch freqs (Hz): {notch_freqs}")
         print(f"Notch Q: {notch_q}")
 
+    audit_rows = []
     n_processed = 0
     n_skipped = 0
     n_failed = 0
@@ -264,7 +272,44 @@ def main() -> int:
             n_failed += 1
             print(f"  [{i+1}/{len(patient_ids)}] {patient_id}: failed - {result.get('error', result.get('reason', 'unknown'))}")
 
+        fr = result.get("failure_reasons", {}) or {}
+        audit_rows.append(
+            {
+                "patient_id": patient_id,
+                "processed": bool(result.get("processed", False)),
+                "skipped": bool(result.get("skipped", False)),
+                "reason": result.get("reason"),
+                "n_segments_total": int(result.get("n_segments_total", 0) or 0),
+                "n_segments_processed": int(result.get("n_segments_processed", 0) or 0),
+                "n_segments_failed": int(result.get("n_segments_failed", 0) or 0),
+                "n_windows_pre_qc": int(result.get("n_windows_pre_qc", 0) or 0),
+                "n_windows_after_qc": int(result.get("n_windows", 0) or 0),
+                "n_windows_rejected_qc": int(result.get("n_windows_rejected_qc", 0) or 0),
+                "retention_ratio": (
+                    float(result.get("n_windows", 0) or 0)
+                    / max(1, int(result.get("n_windows_pre_qc", 0) or 0))
+                ),
+                "n_connectivity_matrices": int(result.get("n_connectivity_matrices", 0) or 0),
+                "fail_load_exception": int(fr.get("load_exception", 0)),
+                "fail_missing_channels": int(fr.get("missing_channels", 0)),
+                "fail_resample_failure": int(fr.get("resample_failure", 0)),
+                "fail_filter_failure": int(fr.get("filter_failure", 0)),
+                "fail_windowing_returned_0_windows": int(fr.get("windowing_returned_0_windows", 0)),
+                "fail_all_windows_rejected_by_qc": int(fr.get("all_windows_rejected_by_qc", 0)),
+                "fail_connectivity_failure": int(fr.get("connectivity_failure", 0)),
+                "fail_validation_failure": int(fr.get("validation_failure", 0)),
+            }
+        )
+
     print(f"Done. Processed: {n_processed}, Skipped: {n_skipped}, Failed: {n_failed}")
+    if args.audit_csv:
+        audit_path = args.audit_csv
+    else:
+        split_name = os.path.splitext(os.path.basename(split_path))[0]
+        audit_path = os.path.join(output_dir, f"preprocessing_audit_{split_name}.csv")
+    os.makedirs(os.path.dirname(audit_path) or ".", exist_ok=True)
+    pd.DataFrame(audit_rows).to_csv(audit_path, index=False)
+    print(f"Audit CSV: {audit_path}")
     return 0 if n_failed == 0 else 1
 
 
