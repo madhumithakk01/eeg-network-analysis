@@ -69,7 +69,18 @@ def main() -> int:
 
     df = pd.concat(dfs, ignore_index=True)
     df["patient_id"] = df["patient_id"].astype(str).apply(_normalize_patient_id)
+    if "data_source" not in df.columns:
+        df["data_source"] = "fresh"
+    # Keep only fresh rows for attrition stats if available.
+    if (df["data_source"] == "fresh").any():
+        df = df[df["data_source"] == "fresh"].copy()
     # Keep best/last row per patient if duplicates
+    dup_diag = (
+        df.groupby("patient_id", as_index=False)
+        .size()
+        .rename(columns={"size": "n_rows"})
+    )
+    dup_diag = dup_diag[dup_diag["n_rows"] > 1].copy()
     df = df.sort_values(by=["patient_id", "processed", "n_windows_after_qc"], ascending=[True, False, False])
     df = df.drop_duplicates(subset=["patient_id"], keep="first").reset_index(drop=True)
 
@@ -83,6 +94,9 @@ def main() -> int:
     os.makedirs(args.output_dir, exist_ok=True)
     patient_csv = os.path.join(args.output_dir, "preprocessing_patient_audit.csv")
     merged.to_csv(patient_csv, index=False)
+    if not dup_diag.empty:
+        dup_path = os.path.join(args.output_dir, "preprocessing_duplicate_patient_rows.csv")
+        dup_diag.to_csv(dup_path, index=False)
 
     # Outcome summary
     if "Outcome" in merged.columns:

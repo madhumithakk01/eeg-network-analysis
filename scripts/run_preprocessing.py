@@ -273,23 +273,35 @@ def main() -> int:
             print(f"  [{i+1}/{len(patient_ids)}] {patient_id}: failed - {result.get('error', result.get('reason', 'unknown'))}")
 
         fr = result.get("failure_reasons", {}) or {}
+        data_source = "fresh"
+        if bool(result.get("skipped", False)) and result.get("reason") == "output_exists":
+            data_source = "cached"
         audit_rows.append(
             {
                 "patient_id": patient_id,
+                "data_source": data_source,
                 "processed": bool(result.get("processed", False)),
                 "skipped": bool(result.get("skipped", False)),
                 "reason": result.get("reason"),
                 "n_segments_total": int(result.get("n_segments_total", 0) or 0),
                 "n_segments_processed": int(result.get("n_segments_processed", 0) or 0),
                 "n_segments_failed": int(result.get("n_segments_failed", 0) or 0),
-                "n_windows_pre_qc": int(result.get("n_windows_pre_qc", 0) or 0),
-                "n_windows_after_qc": int(result.get("n_windows", 0) or 0),
-                "n_windows_rejected_qc": int(result.get("n_windows_rejected_qc", 0) or 0),
+                "n_windows_pre_qc": (
+                    int(result.get("n_windows_pre_qc", 0) or 0) if data_source == "fresh" else None
+                ),
+                "n_windows_after_qc": (
+                    int(result.get("n_windows", 0) or 0) if data_source == "fresh" else None
+                ),
+                "n_windows_rejected_qc": (
+                    int(result.get("n_windows_rejected_qc", 0) or 0) if data_source == "fresh" else None
+                ),
                 "retention_ratio": (
                     float(result.get("n_windows", 0) or 0)
                     / max(1, int(result.get("n_windows_pre_qc", 0) or 0))
+                ) if data_source == "fresh" else None,
+                "n_connectivity_matrices": (
+                    int(result.get("n_connectivity_matrices", 0) or 0) if data_source == "fresh" else None
                 ),
-                "n_connectivity_matrices": int(result.get("n_connectivity_matrices", 0) or 0),
                 "fail_load_exception": int(fr.get("load_exception", 0)),
                 "fail_missing_channels": int(fr.get("missing_channels", 0)),
                 "fail_resample_failure": int(fr.get("resample_failure", 0)),

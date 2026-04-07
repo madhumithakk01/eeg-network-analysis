@@ -239,7 +239,7 @@ def process_patient(
             qc_params = qc_params or {}
             windows_list, qc_stats = filter_windows_by_quality(
                 windows_list,
-                fs,
+                fs_proc,
                 flat_std_min_abs=float(qc_params.get("flat_std_min_abs", 1e-8)),
                 flat_std_min_ratio=float(qc_params.get("flat_std_min_ratio", 1e-3)),
                 max_flat_channel_frac=float(qc_params.get("max_flat_channel_frac", 0.2)),
