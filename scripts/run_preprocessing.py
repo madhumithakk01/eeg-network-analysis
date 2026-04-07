@@ -45,7 +45,10 @@ from configs.config import (
     PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO,
     PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE,
     PREPROCESS_ENABLE_RESAMPLING,
+    PREPROCESS_ENABLE_NOTCH,
     PREPROCESS_MIN_SALVAGE_DURATION_SEC,
+    PREPROCESS_NOTCH_FREQS,
+    PREPROCESS_NOTCH_Q,
     PREPROCESS_TARGET_FS,
     TEMP_DIR,
     WINDOWS_OUTPUT_DIR,
@@ -107,6 +110,28 @@ def main() -> int:
         type=float,
         default=None,
         help=f"Target sampling frequency in Hz when resampling is enabled (default: {PREPROCESS_TARGET_FS}).",
+    )
+    parser.add_argument(
+        "--enable-notch",
+        action="store_true",
+        help="Enable utility-frequency notch filtering.",
+    )
+    parser.add_argument(
+        "--disable-notch",
+        action="store_true",
+        help="Force-disable utility-frequency notch filtering.",
+    )
+    parser.add_argument(
+        "--notch-freqs",
+        type=str,
+        default=None,
+        help=f"Comma-separated notch frequencies in Hz (default: {PREPROCESS_NOTCH_FREQS}).",
+    )
+    parser.add_argument(
+        "--notch-q",
+        type=float,
+        default=None,
+        help=f"Notch Q factor (default: {PREPROCESS_NOTCH_Q}).",
     )
     args = parser.parse_args()
 
@@ -170,6 +195,23 @@ def main() -> int:
     else:
         enable_resampling = PREPROCESS_ENABLE_RESAMPLING
     target_fs = args.target_fs if args.target_fs is not None else PREPROCESS_TARGET_FS
+    if args.disable_notch:
+        enable_notch = False
+    elif args.enable_notch:
+        enable_notch = True
+    else:
+        enable_notch = PREPROCESS_ENABLE_NOTCH
+    notch_q = args.notch_q if args.notch_q is not None else PREPROCESS_NOTCH_Q
+    notch_freq_str = args.notch_freqs if args.notch_freqs is not None else PREPROCESS_NOTCH_FREQS
+    notch_freqs = []
+    for tok in str(notch_freq_str).split(","):
+        t = tok.strip()
+        if not t:
+            continue
+        try:
+            notch_freqs.append(float(t))
+        except ValueError:
+            print(f"Warning: invalid notch frequency token ignored: {t!r}")
 
     print(f"Loaded {len(patient_ids)} patients from {split_path}")
     print(f"Common channels: {len(common_channels)}")
@@ -182,6 +224,10 @@ def main() -> int:
     print(f"Resampling enabled: {enable_resampling}")
     if enable_resampling:
         print(f"Target fs (Hz): {target_fs}")
+    print(f"Notch enabled: {enable_notch}")
+    if enable_notch:
+        print(f"Notch freqs (Hz): {notch_freqs}")
+        print(f"Notch Q: {notch_q}")
 
     n_processed = 0
     n_skipped = 0
@@ -203,6 +249,9 @@ def main() -> int:
             min_salvage_duration_sec=min_salvage_duration_sec,
             enable_resampling=enable_resampling,
             target_fs=target_fs,
+            enable_notch=enable_notch,
+            notch_freqs=notch_freqs,
+            notch_q=notch_q,
         )
         if result["processed"]:
             n_processed += 1

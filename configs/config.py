@@ -177,6 +177,19 @@ PREPROCESS_ENABLE_RESAMPLING = os.environ.get("PREPROCESS_ENABLE_RESAMPLING", "0
 PREPROCESS_TARGET_FS = float(os.environ.get("PREPROCESS_TARGET_FS", "128.0"))
 
 # ---------------------------------------------------------------------------
+# Utility frequency suppression (Step 2.4)
+# ---------------------------------------------------------------------------
+
+# Keep disabled by default; enable via CLI or env.
+PREPROCESS_ENABLE_NOTCH = os.environ.get("PREPROCESS_ENABLE_NOTCH", "0") == "1"
+
+# Comma-separated frequencies in Hz, e.g. "50", "60", or "50,60"
+PREPROCESS_NOTCH_FREQS = os.environ.get("PREPROCESS_NOTCH_FREQS", "50")
+
+# IIR notch quality factor; higher Q = narrower notch
+PREPROCESS_NOTCH_Q = float(os.environ.get("PREPROCESS_NOTCH_Q", "30.0"))
+
+# ---------------------------------------------------------------------------
 # Batch and patient identification
 # ---------------------------------------------------------------------------
 

@@ -9,7 +9,7 @@ to avoid phase distortion. Filter parameters come from config
 from typing import Union
 
 import numpy as np
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, iirnotch
 
 
 def bandpass_filter(
@@ -18,6 +18,8 @@ def bandpass_filter(
     low_hz: float = 0.5,
     high_hz: float = 40.0,
     order: int = 4,
+    notch_freqs: list[float] | None = None,
+    notch_q: float = 30.0,
 ) -> np.ndarray:
     """
     Apply a zero-phase bandpass filter to EEG signal(s).
@@ -45,7 +47,15 @@ def bandpass_filter(
 
     out = np.empty_like(signal)
     for ch in range(signal.shape[1]):
-        out[:, ch] = filtfilt(b, a, signal[:, ch], axis=0)
+        x = filtfilt(b, a, signal[:, ch], axis=0)
+        # Optional utility-frequency notch suppression (e.g., 50/60 Hz)
+        if notch_freqs:
+            for f0 in notch_freqs:
+                if f0 <= 0 or f0 >= nyq:
+                    continue
+                bn, an = iirnotch(w0=f0, Q=max(float(notch_q), 1.0), fs=fs)
+                x = filtfilt(bn, an, x, axis=0)
+        out[:, ch] = x
 
     if single_channel:
         out = out.squeeze(axis=1)

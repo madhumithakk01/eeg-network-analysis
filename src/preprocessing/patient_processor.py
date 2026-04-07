@@ -56,6 +56,9 @@ def process_patient(
     min_salvage_duration_sec: float = 1.0,
     enable_resampling: bool = False,
     target_fs: float = 128.0,
+    enable_notch: bool = False,
+    notch_freqs: Optional[List[float]] = None,
+    notch_q: float = 30.0,
 ) -> Dict[str, Any]:
     """
     Process one patient: load up to max_segments, filter, average reference,
@@ -170,7 +173,12 @@ def process_patient(
 
         try:
             filtered = bandpass_filter(
-                data_proc, fs_proc, low_hz=bandpass_low, high_hz=bandpass_high
+                data_proc,
+                fs_proc,
+                low_hz=bandpass_low,
+                high_hz=bandpass_high,
+                notch_freqs=(notch_freqs if enable_notch else None),
+                notch_q=notch_q,
             )
         except Exception as e:
             print(
