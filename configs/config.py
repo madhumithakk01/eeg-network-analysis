@@ -152,6 +152,21 @@ PREPROCESS_QC_MAINS_BAND_HZ = float(os.environ.get("PREPROCESS_QC_MAINS_BAND_HZ"
 PREPROCESS_QC_MAX_MAINS_RATIO = float(os.environ.get("PREPROCESS_QC_MAX_MAINS_RATIO", "0.35"))
 
 # ---------------------------------------------------------------------------
+# Short-segment salvage policy (Step 2.2)
+# ---------------------------------------------------------------------------
+
+# Backward-compatible default keeps prior behavior.
+PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE = os.environ.get(
+    "PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE", "1"
+) == "1"
+
+# Minimum segment duration (seconds) required before salvage into a single window.
+# Set to 30.0 to effectively disable salvage for short (<30s) segments.
+PREPROCESS_MIN_SALVAGE_DURATION_SEC = float(
+    os.environ.get("PREPROCESS_MIN_SALVAGE_DURATION_SEC", "1.0")
+)
+
+# ---------------------------------------------------------------------------
 # Batch and patient identification
 # ---------------------------------------------------------------------------
 

@@ -43,6 +43,8 @@ from configs.config import (
     PREPROCESS_QC_MAX_LOW_UNIQUE_CHANNEL_FRAC,
     PREPROCESS_QC_MAX_MAINS_RATIO,
     PREPROCESS_QC_MIN_UNIQUE_VALUE_RATIO,
+    PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE,
+    PREPROCESS_MIN_SALVAGE_DURATION_SEC,
     TEMP_DIR,
     WINDOWS_OUTPUT_DIR,
     WINDOW_SECONDS,
@@ -76,6 +78,17 @@ def main() -> int:
         "--disable-window-qc",
         action="store_true",
         help="Force-disable window-level artifact QC gate.",
+    )
+    parser.add_argument(
+        "--disable-short-segment-salvage",
+        action="store_true",
+        help="Disable converting short (<window) segments into one salvage window.",
+    )
+    parser.add_argument(
+        "--min-salvage-duration-sec",
+        type=float,
+        default=None,
+        help=f"Minimum segment duration in seconds to allow salvage (default: {PREPROCESS_MIN_SALVAGE_DURATION_SEC}).",
     )
     args = parser.parse_args()
 
@@ -123,12 +136,24 @@ def main() -> int:
         "mains_band_hz": PREPROCESS_QC_MAINS_BAND_HZ,
         "max_mains_ratio": PREPROCESS_QC_MAX_MAINS_RATIO,
     }
+    if args.disable_short_segment_salvage:
+        enable_short_segment_salvage = False
+    else:
+        enable_short_segment_salvage = PREPROCESS_ENABLE_SHORT_SEGMENT_SALVAGE
+    min_salvage_duration_sec = (
+        args.min_salvage_duration_sec
+        if args.min_salvage_duration_sec is not None
+        else PREPROCESS_MIN_SALVAGE_DURATION_SEC
+    )
 
     print(f"Loaded {len(patient_ids)} patients from {split_path}")
     print(f"Common channels: {len(common_channels)}")
     print(f"EEG root: {EEG_RAW_ROOT}")
     print(f"Output dir: {output_dir}")
     print(f"Window QC enabled: {enable_window_qc}")
+    print(f"Short-segment salvage enabled: {enable_short_segment_salvage}")
+    if enable_short_segment_salvage:
+        print(f"Min salvage duration (sec): {min_salvage_duration_sec}")
 
     n_processed = 0
     n_skipped = 0
@@ -146,6 +171,8 @@ def main() -> int:
             temp_dir=TEMP_DIR,
             enable_window_qc=enable_window_qc,
             qc_params=qc_params,
+            enable_short_segment_salvage=enable_short_segment_salvage,
+            min_salvage_duration_sec=min_salvage_duration_sec,
         )
         if result["processed"]:
             n_processed += 1

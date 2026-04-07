@@ -51,6 +51,8 @@ def process_patient(
     validate_connectivity: bool = False,
     enable_window_qc: bool = False,
     qc_params: Optional[Dict[str, float]] = None,
+    enable_short_segment_salvage: bool = True,
+    min_salvage_duration_sec: float = 1.0,
 ) -> Dict[str, Any]:
     """
     Process one patient: load up to max_segments, filter, average reference,
@@ -120,9 +122,6 @@ def process_patient(
     n_channels_expected = len(common_channel_names)
     n_windows_rejected_qc = 0
 
-    # Minimum segment duration (seconds) to allow a single full-segment window when 30s windowing yields 0
-    MIN_SEGMENT_DURATION_SEC = 1.0
-
     for seg_idx, record_path in enumerate(segment_paths):
         try:
             data, fs = load_eeg_segment(record_path, common_channel_names)
@@ -167,7 +166,7 @@ def process_patient(
         if n_windows_seg == 0:
             segment_duration_sec = n_samples / fs if fs > 0 else 0.0
             required_samples_30s = int(round(window_seconds * fs)) if fs > 0 else 0
-            if segment_duration_sec >= MIN_SEGMENT_DURATION_SEC:
+            if enable_short_segment_salvage and segment_duration_sec >= float(min_salvage_duration_sec):
                 # Salvage short segment as one full-segment window (one connectivity matrix)
                 windows_list = segment_into_windows_list(
                     filtered, fs, window_seconds=segment_duration_sec
