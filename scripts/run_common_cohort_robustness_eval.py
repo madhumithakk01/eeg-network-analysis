@@ -27,6 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from configs.config import (  # noqa: E402
     ANALYSIS_OUTPUT_PATH,
+    AUDIT_PATH,
     CONNECTIVITY_DL_OUTPUT_PATH,
     CONNECTIVITY_DL_STRIDE4_OUTPUT_PATH,
     TEMPORAL_DL_OUTPUT_PATH,
@@ -88,10 +89,48 @@ def _load_fold_predictions(path: str) -> Dict[int, Dict[str, np.ndarray]]:
         if fold < 0:
             continue
         out[fold] = {
+            "patient_ids": np.asarray(item.get("patient_ids", []), dtype=object),
             "y_true": np.asarray(item.get("y_true", []), dtype=np.int64),
             "y_proba": np.asarray(item.get("y_proba", []), dtype=np.float64),
         }
     return out
+
+
+def _norm_pid(x: Any) -> str:
+    s = str(x).strip()
+    try:
+        return str(int(float(s))).zfill(4)
+    except ValueError:
+        return s.zfill(4) if len(s) <= 4 else s
+
+
+def _load_metadata(path: str) -> pd.DataFrame:
+    if not path or not os.path.isfile(path):
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    if "Patient" in df.columns and "patient_id" not in df.columns:
+        df = df.rename(columns={"Patient": "patient_id"})
+    if "patient_id" not in df.columns:
+        return pd.DataFrame()
+    df["patient_id"] = df["patient_id"].astype(str).apply(_norm_pid)
+    keep = [c for c in ["patient_id", "Outcome", "Hospital", "Sex", "Age", "CPC"] if c in df.columns]
+    return df[keep].drop_duplicates(subset=["patient_id"])
+
+
+def _load_qc_audit(path: str) -> pd.DataFrame:
+    if not path or not os.path.isfile(path):
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    if "patient_id" not in df.columns:
+        return pd.DataFrame()
+    df["patient_id"] = df["patient_id"].astype(str).apply(_norm_pid)
+    keep_cols = [
+        "patient_id",
+        "n_windows_after_qc",
+        "retention_ratio",
+    ] + [c for c in df.columns if c.startswith("fail_")]
+    keep_cols = [c for c in keep_cols if c in df.columns]
+    return df[keep_cols].drop_duplicates(subset=["patient_id"])
 
 
 def _candidate_weights(n_models: int, step: float) -> List[np.ndarray]:
@@ -172,6 +211,18 @@ def main() -> int:
     )
     parser.add_argument("--weight-step", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        default=AUDIT_PATH,
+        help=f"Patient metadata CSV with Outcome/Hospital (default: {AUDIT_PATH})",
+    )
+    parser.add_argument(
+        "--qc-audit-csv",
+        type=str,
+        default=None,
+        help="Optional preprocessing_patient_audit.csv for error-taxonomy joins.",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -193,14 +244,25 @@ def main() -> int:
         return 1
 
     fold_rows: List[Dict[str, Any]] = []
+    sample_rows: List[Dict[str, Any]] = []
     for fold in common_folds:
         ys = [fold_data[m][fold]["y_true"] for m in available_models]
+        pids = [fold_data[m][fold].get("patient_ids", np.asarray([], dtype=object)) for m in available_models]
         lens = [len(y) for y in ys]
         if len(set(lens)) != 1:
             continue
         y_true = ys[0]
+        if any(len(pid_arr) not in (0, len(y_true)) for pid_arr in pids):
+            continue
         if any(not np.array_equal(y_true, y2) for y2 in ys[1:]):
             continue
+        # if all models provide patient_ids, enforce alignment
+        if all(len(pid_arr) == len(y_true) for pid_arr in pids):
+            pid_ref = np.asarray([_norm_pid(x) for x in pids[0]], dtype=object)
+            if any(not np.array_equal(pid_ref, np.asarray([_norm_pid(x) for x in p], dtype=object)) for p in pids[1:]):
+                continue
+        else:
+            pid_ref = np.asarray([], dtype=object)
         if len(np.unique(y_true)) < 2:
             continue
 
@@ -248,6 +310,19 @@ def main() -> int:
             row[f"w_{model_name}"] = float(weights[mi])
         fold_rows.append(row)
 
+        # Store per-sample predictions for subgroup/error-taxonomy analysis if IDs exist
+        if len(pid_ref) == len(y_true):
+            for j, eval_idx in enumerate(idx_eval):
+                sr = {
+                    "fold": int(fold),
+                    "patient_id": str(pid_ref[eval_idx]),
+                    "y_true": int(y_eval[j]),
+                    "ensemble_proba": float(p_ens_eval[j]),
+                }
+                for mi, model_name in enumerate(available_models):
+                    sr[f"{model_name}_proba"] = float(p_eval[j, mi])
+                sample_rows.append(sr)
+
     if not fold_rows:
         print("No fold passed alignment checks (same length + identical y_true).")
         return 1
@@ -264,7 +339,7 @@ def main() -> int:
     summary["mean_ensemble_auc_gain_vs_best_single"] = float(fold_df["ensemble_auc_gain_vs_best_single"].mean())
     summary["std_ensemble_auc_gain_vs_best_single"] = float(fold_df["ensemble_auc_gain_vs_best_single"].std())
     summary["notes"] = [
-        "Hospital-level subgroup analysis is unavailable unless fold predictions include patient IDs.",
+        "Hospital/error-taxonomy outputs are generated only if fold predictions include aligned patient_ids.",
         "This report guarantees same-cohort comparison only for folds passing strict y_true alignment checks.",
     ]
 
@@ -293,6 +368,64 @@ def main() -> int:
     comp_csv = os.path.join(args.output_dir, "common_cohort_model_comparison.csv")
     comp_df.to_csv(comp_csv, index=False)
 
+    # Optional subgroup analysis using patient-level links
+    hospital_csv = os.path.join(args.output_dir, "hospital_stratified_metrics.csv")
+    error_tax_csv = os.path.join(args.output_dir, "error_taxonomy_by_qc.csv")
+    fairness_json = os.path.join(args.output_dir, "fairness_gap_summary.json")
+    if sample_rows:
+        sample_df = pd.DataFrame(sample_rows)
+        meta_df = _load_metadata(args.metadata)
+        qc_df = _load_qc_audit(args.qc_audit_csv) if args.qc_audit_csv else pd.DataFrame()
+        if not meta_df.empty:
+            sample_df = sample_df.merge(meta_df, on="patient_id", how="left")
+            # hospital-stratified metrics (ensemble only; same pattern can be expanded later)
+            if "Hospital" in sample_df.columns:
+                hrows = []
+                for h, g in sample_df.groupby("Hospital", dropna=False):
+                    if g["y_true"].nunique() < 2:
+                        continue
+                    th = _find_optimal_threshold(g["y_true"].values, g["ensemble_proba"].values, "youden")
+                    m = _metrics_at_threshold(g["y_true"].values, g["ensemble_proba"].values, th)
+                    hrows.append(
+                        {
+                            "Hospital": h,
+                            "n": int(len(g)),
+                            "auc": float(roc_auc_score(g["y_true"].values, g["ensemble_proba"].values)),
+                            "f1": m["f1"],
+                            "sensitivity": m["sensitivity"],
+                            "specificity": m["specificity"],
+                            "accuracy": m["accuracy"],
+                        }
+                    )
+                if hrows:
+                    hdf = pd.DataFrame(hrows)
+                    hdf.to_csv(hospital_csv, index=False)
+                    fairness = {
+                        "max_min_hospital_auc_gap": float(hdf["auc"].max() - hdf["auc"].min()),
+                        "max_min_hospital_sensitivity_gap": float(
+                            hdf["sensitivity"].max() - hdf["sensitivity"].min()
+                        ),
+                    }
+                    with open(fairness_json, "w", encoding="utf-8") as f:
+                        json.dump(fairness, f, indent=2)
+        if not qc_df.empty:
+            joined = sample_df.merge(qc_df, on="patient_id", how="left")
+            t_global = _find_optimal_threshold(joined["y_true"].values, joined["ensemble_proba"].values, "youden")
+            joined["ensemble_pred"] = (joined["ensemble_proba"].values >= t_global).astype(int)
+            joined["error_type"] = np.where(
+                (joined["ensemble_pred"] == 1) & (joined["y_true"] == 0),
+                "FP",
+                np.where(
+                    (joined["ensemble_pred"] == 0) & (joined["y_true"] == 1),
+                    "FN",
+                    np.where(joined["ensemble_pred"] == 1, "TP", "TN"),
+                ),
+            )
+            num_cols = [c for c in ["n_windows_after_qc", "retention_ratio"] + [c for c in joined.columns if c.startswith("fail_")] if c in joined.columns]
+            if num_cols:
+                et = joined.groupby("error_type", dropna=False)[num_cols].mean().reset_index()
+                et.to_csv(error_tax_csv, index=False)
+
     print("Common-cohort robustness evaluation complete")
     print("=" * 60)
     print(f"Models used: {available_models}")
@@ -301,6 +434,12 @@ def main() -> int:
     print(f"Saved: {fold_csv}")
     print(f"Saved: {comp_csv}")
     print(f"Saved: {summary_json}")
+    if os.path.isfile(hospital_csv):
+        print(f"Saved: {hospital_csv}")
+    if os.path.isfile(error_tax_csv):
+        print(f"Saved: {error_tax_csv}")
+    if os.path.isfile(fairness_json):
+        print(f"Saved: {fairness_json}")
     return 0
 
 

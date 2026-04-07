@@ -191,6 +191,7 @@ def run_patient_cv(
         all_fold_results.append({
             "fold": fold,
             "metrics": best_metrics,
+            "patient_ids": [str(pid) for pid in val_ids],
             "y_true": best_y_true.tolist() if best_y_true is not None else [],
             "y_proba": best_y_proba.tolist() if best_y_proba is not None else [],
         })
@@ -214,7 +215,12 @@ def run_patient_cv(
             "fold_metrics": fold_metrics,
             "summary": mean_metrics,
             "fold_predictions": [
-                {"fold": r["fold"], "y_true": r["y_true"], "y_proba": r["y_proba"]}
+                {
+                    "fold": r["fold"],
+                    "patient_ids": r.get("patient_ids", []),
+                    "y_true": r["y_true"],
+                    "y_proba": r["y_proba"],
+                }
                 for r in all_fold_results
             ],
         }
